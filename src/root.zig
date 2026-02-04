@@ -4,6 +4,7 @@ pub const sokol = @import("sokol");
 pub const app_wrapper = @import("app_wrapper.zig");
 pub const undo = @import("undo");
 pub const thread = @import("thread.zig");
+pub const stb_image = @import("stb_image.zig");
 
 /// Platform-agnostic thread abstraction
 pub const Thread = thread.Thread;

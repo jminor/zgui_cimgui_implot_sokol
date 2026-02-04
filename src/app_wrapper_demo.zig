@@ -110,6 +110,15 @@ const STATE = struct {
     var worker_counter: std.atomic.Value(u32) = std.atomic.Value(u32).init(0);
     var worker_jobs_submitted: u32 = 0;
     var worker_jobs_completed: u32 = 0;
+
+    // Image loading demo state
+    var image_fetch_query: *app_wrapper.FetchQuery = undefined;
+    var image_tex: sg.Image = .{};
+    var image_view: sg.View = .{};
+    var image_texid: u64 = 0;
+    var image_width: u32 = 0;
+    var image_height: u32 = 0;
+    var image_loaded: bool = false;
 };
 
 const IS_WASM = builtin.target.cpu.arch.isWasm();
@@ -657,6 +666,78 @@ fn draw() !void {
                     .{ ._TexID = STATE.texid },
                     .{ .x = wsize[0], .y = wsize[1] },
                 );
+            }
+
+            if (zgui.beginTabItem("Image Example", .{})) {
+                defer zgui.endTabItem();
+
+                switch (STATE.image_fetch_query.state) {
+                    .loading => {
+                        zgui.pushStyleColor4f(.{
+                            .idx = .text,
+                            .c = .{ 0.0, 0.5, 1.0, 1.0 },
+                        });
+                        zgui.text("Loading image...", .{});
+                        zgui.popStyleColor(.{});
+                    },
+                    .failed => {
+                        zgui.pushStyleColor4f(.{
+                            .idx = .text,
+                            .c = .{ 1.0, 0.0, 0.0, 1.0 },
+                        });
+                        zgui.text("Failed to load image", .{});
+
+                        if (STATE.image_fetch_query.maybe_error != null) {
+                            zgui.text(
+                                "  Error: {s}",
+                                .{STATE.image_fetch_query.getErrorMessage()},
+                            );
+                            zgui.text(
+                                "  Code: {s}",
+                                .{STATE.image_fetch_query.get_error_name()},
+                            );
+                        }
+                        zgui.popStyleColor(.{});
+                    },
+                    .loaded => {
+                        if (STATE.image_loaded) {
+                            zgui.pushStyleColor4f(.{
+                                .idx = .text,
+                                .c = .{ 0.0, 1.0, 0.0, 1.0 },
+                            });
+                            zgui.text(
+                                "Image loaded: {}x{} pixels",
+                                .{ STATE.image_width, STATE.image_height },
+                            );
+                            zgui.popStyleColor(.{});
+
+                            zgui.spacing();
+
+                            // Get available content region for scaling
+                            const avail = zgui.getContentRegionAvail();
+
+                            // Calculate aspect ratio preserving size
+                            const img_w: f32 = @floatFromInt(STATE.image_width);
+                            const img_h: f32 = @floatFromInt(STATE.image_height);
+                            const aspect = img_w / img_h;
+
+                            var display_w = avail[0];
+                            var display_h = display_w / aspect;
+
+                            if (display_h > avail[1]) {
+                                display_h = avail[1];
+                                display_w = display_h * aspect;
+                            }
+
+                            ziis.cimgui.igImage(
+                                .{ ._TexID = STATE.image_texid },
+                                .{ .x = display_w, .y = display_h },
+                            );
+                        } else {
+                            zgui.text("Decoding image...", .{});
+                        }
+                    },
+                }
             }
 
             if (zgui.beginTabItem("Canvas Drawing Example", .{}) and zgui.beginChild(
@@ -1229,6 +1310,7 @@ fn draw() !void {
 fn cleanup() void {
     allocator.destroy(STATE.json_fetch_query);
     allocator.destroy(STATE.big_text_query);
+    allocator.destroy(STATE.image_fetch_query);
 
     STATE.point_buffers.deinit(allocator);
 
@@ -1300,6 +1382,50 @@ fn json_parsing_callback(
     }
 }
 
+/// Load image data and create a sokol texture from it
+fn image_loading_callback(
+    /// fetch response
+    fetch_query: *app_wrapper.FetchQuery,
+) error{CallbackError}!void {
+    // Decode the image using stb_image
+    var img = ziis.stb_image.loadFromMemory(fetch_query.data) orelse {
+        const reason = ziis.stb_image.getFailureReason();
+        if (reason) |r| {
+            std.log.err("Failed to decode: {s}", .{r});
+        } else {
+            std.log.err("Failed to decode: unknown error", .{});
+        }
+        return error.CallbackError;
+    };
+    defer img.deinit();
+
+    STATE.image_width = img.width;
+    STATE.image_height = img.height;
+
+    // Create ImageData with the pixel data
+    var image_data = sg.ImageData{};
+    image_data.mip_levels[0] = sg.asRange(img.data);
+
+    // Create the sokol image/texture
+    STATE.image_tex = sg.makeImage(.{
+        .width = @intCast(img.width),
+        .height = @intCast(img.height),
+        .pixel_format = .RGBA8,
+        .data = image_data,
+    });
+
+    STATE.image_view = sg.makeView(.{
+        .texture = .{
+            .image = STATE.image_tex,
+        },
+    });
+
+    STATE.image_texid = ziis.sokol.imgui.imtextureid(STATE.image_view);
+    STATE.image_loaded = true;
+
+    std.log.info("Image loaded successfully: {}x{}", .{ img.width, img.height });
+}
+
 pub fn init() void {
     // right around the minimum number of points to make the plot disapear
     const BIGCOUNT = 7750;
@@ -1361,6 +1487,21 @@ pub fn init() void {
         std.log.err(
             "Unable to fetch data: {s}",
             .{"src/app_wrapper_demo.zig"},
+        );
+        return;
+    };
+
+    // Fetch image
+    const image_filename = "puppy.jpg";
+    STATE.image_fetch_query = app_wrapper.fetch_resource_from_path(
+        allocator,
+        image_filename,
+        image_loading_callback,
+        .none,
+    ) catch {
+        std.log.err(
+            "Unable to fetch image: {s}",
+            .{image_filename},
         );
         return;
     };

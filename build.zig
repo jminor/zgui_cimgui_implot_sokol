@@ -112,6 +112,33 @@ pub fn build(
             .flags = &cflags,
         },
     );
+
+    // Add stb_image library
+    const lib_stb_image = b.addLibrary(.{
+        .linkage = .static,
+        .name = "stb_image",
+        .root_module = b.createModule(
+            .{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            },
+        ),
+    });
+    lib_stb_image.addCSourceFiles(
+        .{
+            .root = b.path("src"),
+            .files = &.{
+                "stb_image_impl.c",
+            },
+            .flags = &.{
+                "-fno-sanitize=undefined",
+            },
+        },
+    );
+    lib_stb_image.addIncludePath(b.path("src"));
+    mod_ziis.linkLibrary(lib_stb_image);
+    mod_ziis.addIncludePath(b.path("src"));
     lib_imgui.addCSourceFiles(
         .{
             .root = dep_implot.path("."),
@@ -253,6 +280,7 @@ pub fn build(
                 .dep_c_libs = &.{
                     lib_cimgui,
                     lib_imgui,
+                    lib_stb_image,
                     // lib_worker_interop, // Disabled: EM_JS linking issue
                 },
             },
