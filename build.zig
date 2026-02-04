@@ -210,6 +210,25 @@ pub fn build(
         },
     );
 
+    // zplay video player module
+    const mod_zplay = b.createModule(
+        .{
+            .root_source_file = b.path("src/zplay.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zgui_cimgui_implot_sokol", .module = mod_ziis },
+            },
+        },
+    );
+    // Link FFmpeg libraries for zplay (native only)
+    if (!target.result.cpu.arch.isWasm()) {
+        mod_zplay.linkSystemLibrary("avcodec", .{});
+        mod_zplay.linkSystemLibrary("avformat", .{});
+        mod_zplay.linkSystemLibrary("avutil", .{});
+        mod_zplay.linkSystemLibrary("swscale", .{});
+    }
+
     // for zls -- "check" step
     const check_step = b.step(
         "check",
@@ -317,6 +336,7 @@ pub fn build(
             b,
             mod_app_wrapper,
             mod_zview,
+            mod_zplay,
             check_step,
         );
     }
@@ -327,6 +347,7 @@ fn build_native(
     b: *std.Build,
     mod: *std.Build.Module,
     mod_zview: *std.Build.Module,
+    mod_zplay: *std.Build.Module,
     check_step: *std.Build.Step,
 ) !void {
     const exe = b.addExecutable(
@@ -358,6 +379,24 @@ fn build_native(
     }
     const run_zview_step = b.step("run-zview", "Run zview image viewer");
     run_zview_step.dependOn(&run_zview.step);
+
+    // Build zplay video player
+    const zplay_exe = b.addExecutable(
+        .{
+            .name = "zplay",
+            .root_module = mod_zplay,
+        },
+    );
+    check_step.dependOn(&zplay_exe.step);
+    b.installArtifact(zplay_exe);
+
+    const run_zplay = b.addRunArtifact(zplay_exe);
+    // Allow passing arguments to zplay
+    if (b.args) |args| {
+        run_zplay.addArgs(args);
+    }
+    const run_zplay_step = b.step("run-zplay", "Run zplay video player");
+    run_zplay_step.dependOn(&run_zplay.step);
 }
 
 /// Build for WASM
