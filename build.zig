@@ -198,6 +198,18 @@ pub fn build(
         },
     );
 
+    // zview image viewer module
+    const mod_zview = b.createModule(
+        .{
+            .root_source_file = b.path("src/zview.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zgui_cimgui_implot_sokol", .module = mod_ziis },
+            },
+        },
+    );
+
     // for zls -- "check" step
     const check_step = b.step(
         "check",
@@ -304,6 +316,7 @@ pub fn build(
         try build_native(
             b,
             mod_app_wrapper,
+            mod_zview,
             check_step,
         );
     }
@@ -313,6 +326,7 @@ pub fn build(
 fn build_native(
     b: *std.Build,
     mod: *std.Build.Module,
+    mod_zview: *std.Build.Module,
     check_step: *std.Build.Step,
 ) !void {
     const exe = b.addExecutable(
@@ -326,6 +340,24 @@ fn build_native(
     var run_step = b.step("run-demo", "Run demo");
 
     run_step.dependOn(&b.addRunArtifact(exe).step);
+
+    // Build zview image viewer
+    const zview_exe = b.addExecutable(
+        .{
+            .name = "zview",
+            .root_module = mod_zview,
+        },
+    );
+    check_step.dependOn(&zview_exe.step);
+    b.installArtifact(zview_exe);
+
+    const run_zview = b.addRunArtifact(zview_exe);
+    // Allow passing arguments to zview
+    if (b.args) |args| {
+        run_zview.addArgs(args);
+    }
+    const run_zview_step = b.step("run-zview", "Run zview image viewer");
+    run_zview_step.dependOn(&run_zview.step);
 }
 
 /// Build for WASM
