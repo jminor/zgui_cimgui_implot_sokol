@@ -32,6 +32,15 @@ const STATE = struct {
     var scroll_y: f32 = 0.0;
     var needs_initial_fit: bool = true; // Flag to fit on first frame
 
+    // For zoom-around-center calculations (button zoom only)
+    var pending_zoom_factor: ?f32 = null; // Multiplier for zoom (e.g., 0.8 for zoom out, 1.25 for zoom in)
+    var pending_scroll_x: ?f32 = null; // Scroll to apply after button zoom
+    var pending_scroll_y: ?f32 = null;
+    var current_scroll_x: f32 = 0;
+    var current_scroll_y: f32 = 0;
+    var last_view_width: f32 = 0;
+    var last_view_height: f32 = 0;
+
     // Screen dimensions for constraining window size
     const MAX_WINDOW_WIDTH: f32 = 1920;
     const MAX_WINDOW_HEIGHT: f32 = 1080;
@@ -162,9 +171,9 @@ fn draw() !void {
 
 /// Draw the toolbar with zoom controls
 fn drawToolbar() void {
-    // Zoom out button
+    // Zoom out button - just set pending factor, actual zoom happens in drawImageView
     if (zgui.button("-  Zoom Out", .{})) {
-        STATE.zoom = @max(0.1, STATE.zoom * 0.8);
+        STATE.pending_zoom_factor = 0.8;
     }
 
     zgui.sameLine(.{});
@@ -174,9 +183,9 @@ fn drawToolbar() void {
 
     zgui.sameLine(.{});
 
-    // Zoom in button
+    // Zoom in button - just set pending factor, actual zoom happens in drawImageView
     if (zgui.button("+  Zoom In", .{})) {
-        STATE.zoom = @min(10.0, STATE.zoom * 1.25);
+        STATE.pending_zoom_factor = 1.25;
     }
 
     zgui.sameLine(.{});
@@ -231,12 +240,41 @@ fn drawImageView() void {
     const img_w: f32 = @floatFromInt(STATE.image_width);
     const img_h: f32 = @floatFromInt(STATE.image_height);
 
-    // Calculate display dimensions
-    const display_w = img_w * STATE.zoom;
-    const display_h = img_h * STATE.zoom;
-
     // Get available space
     const avail = zgui.getContentRegionAvail();
+
+    // Handle pending button zoom BEFORE calculating display dimensions
+    // This ensures zoom and scroll are applied in the same frame
+    if (STATE.pending_zoom_factor) |factor| {
+        const old_zoom = STATE.zoom;
+        STATE.zoom = std.math.clamp(STATE.zoom * factor, 0.1, 10.0);
+
+        if (old_zoom != STATE.zoom) {
+            // Calculate new scroll to keep center in place
+            const scroll_x = STATE.current_scroll_x;
+            const scroll_y = STATE.current_scroll_y;
+            const view_w = STATE.last_view_width;
+            const view_h = STATE.last_view_height;
+
+            // Calculate the center point in image coordinates (before zoom)
+            const center_x = scroll_x + view_w / 2;
+            const center_y = scroll_y + view_h / 2;
+
+            // Scale the center point by the zoom ratio
+            const zoom_ratio = STATE.zoom / old_zoom;
+            const new_center_x = center_x * zoom_ratio;
+            const new_center_y = center_y * zoom_ratio;
+
+            // Set pending scroll to be applied inside the child window
+            STATE.pending_scroll_x = @max(0, new_center_x - view_w / 2);
+            STATE.pending_scroll_y = @max(0, new_center_y - view_h / 2);
+        }
+        STATE.pending_zoom_factor = null;
+    }
+
+    // Calculate display dimensions (after zoom is finalized)
+    const display_w = img_w * STATE.zoom;
+    const display_h = img_h * STATE.zoom;
 
     // Create a child window with scrollbars
     if (zgui.beginChild(
@@ -253,6 +291,24 @@ fn drawImageView() void {
         },
     )) {
         defer zgui.endChild();
+
+        // Track view dimensions for zoom-around-center
+        STATE.last_view_width = avail[0];
+        STATE.last_view_height = avail[1];
+
+        // Apply pending scroll from button zoom (only when set)
+        if (STATE.pending_scroll_x) |sx| {
+            zgui.setScrollX(sx);
+            STATE.pending_scroll_x = null;
+        }
+        if (STATE.pending_scroll_y) |sy| {
+            zgui.setScrollY(sy);
+            STATE.pending_scroll_y = null;
+        }
+
+        // Track current scroll position for next button zoom
+        STATE.current_scroll_x = zgui.getScrollX();
+        STATE.current_scroll_y = zgui.getScrollY();
 
         // Handle mouse wheel zoom
         if (zgui.isWindowHovered(.{})) {
@@ -284,6 +340,10 @@ fn drawImageView() void {
 
                     zgui.setScrollX(@max(0, new_scroll_x));
                     zgui.setScrollY(@max(0, new_scroll_y));
+
+                    // Update current scroll so button zoom uses correct values
+                    STATE.current_scroll_x = @max(0, new_scroll_x);
+                    STATE.current_scroll_y = @max(0, new_scroll_y);
                 }
             }
         }
