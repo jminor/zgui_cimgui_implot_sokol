@@ -329,6 +329,11 @@ fn drawImageView() void {
 }
 
 fn cleanup() void {
+    // Free the duplicated image path if it was allocated
+    if (STATE.image_path.len > 0) {
+        allocator.free(STATE.image_path);
+    }
+
     if (IS_WASM == false) {
         const result = debug_allocator.deinit();
         if (result == .leak) {
@@ -352,7 +357,6 @@ fn init() void {
 pub fn main() !void {
     // Parse command line arguments
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
         std.debug.print("Usage: zview <image_file>\n", .{});
@@ -360,8 +364,9 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    // Store the image path
+    // Store the image path and free args (sokol_main doesn't return, so defer won't work)
     STATE.image_path = try allocator.dupeZ(u8, args[1]);
+    std.process.argsFree(allocator, args);
 
     app_wrapper.sokol_main(
         .{
