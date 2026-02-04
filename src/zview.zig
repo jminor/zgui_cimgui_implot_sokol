@@ -30,6 +30,7 @@ const STATE = struct {
     var zoom: f32 = 1.0;
     var scroll_x: f32 = 0.0;
     var scroll_y: f32 = 0.0;
+    var needs_initial_fit: bool = true; // Flag to fit on first frame
 
     // Screen dimensions for constraining window size
     const MAX_WINDOW_WIDTH: f32 = 1920;
@@ -142,6 +143,11 @@ fn draw() !void {
 
         // Image display area
         if (STATE.image_loaded) {
+            // Fit to window on first frame (after window is properly sized)
+            if (STATE.needs_initial_fit) {
+                fitToWindow();
+                STATE.needs_initial_fit = false;
+            }
             drawImageView();
         } else if (STATE.load_error) |err| {
             zgui.pushStyleColor4f(.{ .idx = .text, .c = .{ 1.0, 0.3, 0.3, 1.0 } });
