@@ -310,44 +310,6 @@ fn drawImageView() void {
         STATE.current_scroll_x = zgui.getScrollX();
         STATE.current_scroll_y = zgui.getScrollY();
 
-        // Handle mouse wheel zoom
-        if (zgui.isWindowHovered(.{})) {
-            const io_ptr = cimgui.igGetIO();
-            const wheel = io_ptr.*.MouseWheel;
-            if (wheel != 0) {
-                const old_zoom = STATE.zoom;
-                if (wheel > 0) {
-                    STATE.zoom = @min(10.0, STATE.zoom * 1.1);
-                } else {
-                    STATE.zoom = @max(0.1, STATE.zoom * 0.9);
-                }
-
-                // Try to keep zoom centered on mouse position
-                if (old_zoom != STATE.zoom) {
-                    const mouse_pos = zgui.getMousePos();
-                    const window_pos = zgui.getWindowPos();
-                    const scroll_x = zgui.getScrollX();
-                    const scroll_y = zgui.getScrollY();
-
-                    // Mouse position relative to window content
-                    const rel_x = mouse_pos[0] - window_pos[0] + scroll_x;
-                    const rel_y = mouse_pos[1] - window_pos[1] + scroll_y;
-
-                    // Adjust scroll to keep mouse position stable
-                    const zoom_ratio = STATE.zoom / old_zoom;
-                    const new_scroll_x = rel_x * zoom_ratio - (mouse_pos[0] - window_pos[0]);
-                    const new_scroll_y = rel_y * zoom_ratio - (mouse_pos[1] - window_pos[1]);
-
-                    zgui.setScrollX(@max(0, new_scroll_x));
-                    zgui.setScrollY(@max(0, new_scroll_y));
-
-                    // Update current scroll so button zoom uses correct values
-                    STATE.current_scroll_x = @max(0, new_scroll_x);
-                    STATE.current_scroll_y = @max(0, new_scroll_y);
-                }
-            }
-        }
-
         // Center the image if it's smaller than the available space
         if (display_w < avail[0]) {
             const offset_x = (avail[0] - display_w) / 2;
