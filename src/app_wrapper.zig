@@ -1,7 +1,7 @@
 //! Wrapper for an app using ZIIS - see app_wrapper_demo for an example
 
 const std = @import("std");
-const builtin= @import("builtin");
+const builtin = @import("builtin");
 
 const ziis = @import("root.zig");
 const zgui = ziis.zgui;
@@ -16,15 +16,10 @@ const sfetch = ziis.sokol.fetch;
 /// building with wasm?
 const IS_WASM = builtin.target.cpu.arch.isWasm();
 
-var debug_allocator = (
-    if (IS_WASM) null 
-    else std.heap.DebugAllocator(.{}){}
-);
+var debug_allocator = (if (IS_WASM) null else std.heap.DebugAllocator(.{}){});
 const backing_allocator = (
     // @TODO: try the smp_allocator
-    if (IS_WASM) std.heap.c_allocator 
-    else debug_allocator.allocator()
-);
+    if (IS_WASM) std.heap.c_allocator else debug_allocator.allocator());
 
 /// State container
 const STATE = struct {
@@ -40,9 +35,7 @@ const STATE = struct {
     const allocator = backing_allocator;
 };
 
-export fn init(
-) void 
-{
+export fn init() void {
     // initialize sokol-gfx
     sg.setup(
         .{
@@ -56,7 +49,7 @@ export fn init(
         .{
             // max out the vertex buffer... might be overkill
             .max_vertices = STATE.app.max_vertices,
-            .logger = .{ .func = sokol.log.func }, 
+            .logger = .{ .func = sokol.log.func },
         },
     );
 
@@ -109,16 +102,12 @@ export fn init(
         // }
     }
 
-    if (STATE.app.maybe_post_zgui_init)
-        |init_fn|
-    {
+    if (STATE.app.maybe_post_zgui_init) |init_fn| {
         init_fn();
     }
 }
 
-export fn frame(
-) void 
-{
+export fn frame() void {
     // Pump sokol-fetch message queues
     sfetch.dowork();
 
@@ -137,12 +126,10 @@ export fn frame(
         std.process.exit(1);
     };
 
-    sg.beginPass(
-        .{
-            .action = STATE.pass_action,
-            .swapchain = sglue.swapchain(),
-        }
-    );
+    sg.beginPass(.{
+        .action = STATE.pass_action,
+        .swapchain = sglue.swapchain(),
+    });
 
     simgui.render();
     sg.endPass();
@@ -152,16 +139,14 @@ export fn frame(
 //@{ fetch code
 
 /// State of the fetch operation, loading, failed, etc.
-pub const FetchState = enum
-{
+pub const FetchState = enum {
     loading,
     loaded,
     failed,
 };
 
 /// Compression format for automatic decompression
-pub const Compression = enum
-{
+pub const Compression = enum {
     /// No decompression (raw data)
     none,
     /// Gzip format (.gz files)
@@ -171,8 +156,7 @@ pub const Compression = enum
 };
 
 /// Details about a fetch error
-pub const FetchError = struct
-{
+pub const FetchError = struct {
     /// Error code from sokol-fetch
     error_code: sfetch.Error,
     /// Path that was requested (up to 256 chars)
@@ -182,8 +166,7 @@ pub const FetchError = struct
 };
 
 /// Encapsulates a query for a resource, can work remotely or locally
-pub const FetchQuery = struct
-{
+pub const FetchQuery = struct {
     // @TODO: use a dynamic buffer allocation rather than a fixed size
     /// Buffer used for internal query stuff.
     buffer: [15 * 1024 * 1024]u8,
@@ -213,18 +196,13 @@ pub const FetchQuery = struct
     decompressed_buffer: ?[]u8,
 
     /// Alias for query callback functions
-    pub const CallbackFn = (
-        *const fn (*FetchQuery) error{CallbackError}!void
-    );
+    pub const CallbackFn = (*const fn (*FetchQuery) error{CallbackError}!void);
 
     /// Get error code as string
     pub fn get_error_name(
         self: *const FetchQuery,
-    ) []const u8
-    {
-        if (self.maybe_error)
-            |err|
-        {
+    ) []const u8 {
+        if (self.maybe_error) |err| {
             return @tagName(err.error_code);
         }
         return "";
@@ -233,13 +211,9 @@ pub const FetchQuery = struct
     /// Get human-readable error message
     pub fn getErrorMessage(
         self: *const FetchQuery,
-    ) []const u8
-    {
-        if (self.maybe_error)
-            |err|
-        {
-            return switch (err.error_code)
-            {
+    ) []const u8 {
+        if (self.maybe_error) |err| {
+            return switch (err.error_code) {
                 .NO_ERROR => "No error",
                 .FILE_NOT_FOUND => "File not found or could not be opened",
                 .NO_BUFFER => "No buffer provided for fetch",
@@ -256,11 +230,8 @@ pub const FetchQuery = struct
     /// Get the path that failed
     pub fn get_error_path(
         self: *const FetchQuery,
-    ) []const u8
-    {
-        if (self.maybe_error)
-            |*err|
-        {
+    ) []const u8 {
+        if (self.maybe_error) |*err| {
             return err.path[0..err.path_len];
         }
         return "";
@@ -269,16 +240,14 @@ pub const FetchQuery = struct
     /// Check if data has gzip magic bytes (0x1f 0x8b)
     pub fn has_gzip_magic(
         data: []const u8,
-    ) bool
-    {
+    ) bool {
         return data.len >= 2 and data[0] == 0x1f and data[1] == 0x8b;
     }
 
     /// Check if path ends with .gz extension
     pub fn has_gzip_extension(
         path: []const u8,
-    ) bool
-    {
+    ) bool {
         return std.mem.endsWith(u8, path, ".gz");
     }
 
@@ -286,8 +255,7 @@ pub const FetchQuery = struct
     pub fn decompress_gzip(
         self: *FetchQuery,
         compressed_data: []const u8,
-    ) ![]const u8
-    {
+    ) ![]const u8 {
         // Create an input reader from the compressed data
         var input_reader = std.Io.Reader.fixed(compressed_data);
 
@@ -295,12 +263,11 @@ pub const FetchQuery = struct
         const window_buffer = self.allocator.alloc(
             u8,
             std.compress.flate.max_window_len,
-        ) catch
-            |err|
-        {
-            std.log.err("Failed to allocate decompression window: {any}", .{err});
-            return err;
-        };
+        ) catch |err|
+            {
+                std.log.err("Failed to allocate decompression window: {any}", .{err});
+                return err;
+            };
         defer self.allocator.free(window_buffer);
 
         // Initialize the decompressor
@@ -315,69 +282,58 @@ pub const FetchQuery = struct
         var output = std.ArrayList(u8).initCapacity(
             self.allocator,
             initial_size,
-        ) catch
-            |err|
-        {
-            std.log.err("Failed to allocate output buffer: {any}", .{err});
-            return err;
-        };
+        ) catch |err|
+            {
+                std.log.err("Failed to allocate output buffer: {any}", .{err});
+                return err;
+            };
         errdefer output.deinit(self.allocator);
 
         // Read decompressed data in chunks
         var chunk_buf: [4096]u8 = undefined;
-        while (true)
-        {
+        while (true) {
             // Use the reader's buffered method to get data
             const buffered = decomp.reader.buffered();
-            if (buffered.len > 0)
-            {
-                output.appendSlice(self.allocator, buffered) catch
-                    |err|
-                {
-                    std.log.err("Failed to append decompressed data: {any}", .{err});
-                    return err;
-                };
+            if (buffered.len > 0) {
+                output.appendSlice(self.allocator, buffered) catch |err|
+                    {
+                        std.log.err("Failed to append decompressed data: {any}", .{err});
+                        return err;
+                    };
                 decomp.reader.toss(buffered.len);
-            }
-            else
-            {
+            } else {
                 // Try to fill buffer
                 var writer = std.Io.Writer.fixed(&chunk_buf);
                 const n = decomp.reader.stream(
                     &writer,
                     .limited(chunk_buf.len),
-                ) catch
-                    |err|
-                {
-                    // EndOfStream means we're done
-                    if (err == error.EndOfStream)
+                ) catch |err|
                     {
-                        break;
-                    }
-                    std.log.err("Decompression stream error: {any}", .{err});
-                    return err;
-                };
+                        // EndOfStream means we're done
+                        if (err == error.EndOfStream) {
+                            break;
+                        }
+                        std.log.err("Decompression stream error: {any}", .{err});
+                        return err;
+                    };
 
-                if (n == 0)
-                {
+                if (n == 0) {
                     break;
                 }
 
-                output.appendSlice(self.allocator, chunk_buf[0..n]) catch
-                    |err|
-                {
-                    std.log.err("Failed to append chunk: {any}", .{err});
-                    return err;
-                };
+                output.appendSlice(self.allocator, chunk_buf[0..n]) catch |err|
+                    {
+                        std.log.err("Failed to append chunk: {any}", .{err});
+                        return err;
+                    };
             }
         }
 
-        const owned = output.toOwnedSlice(self.allocator) catch
-            |err|
-        {
-            std.log.err("Failed to finalize output: {any}", .{err});
-            return err;
-        };
+        const owned = output.toOwnedSlice(self.allocator) catch |err|
+            {
+                std.log.err("Failed to finalize output: {any}", .{err});
+                return err;
+            };
         self.decompressed_buffer = owned;
         return owned;
     }
@@ -385,11 +341,8 @@ pub const FetchQuery = struct
     /// Free decompressed buffer if allocated
     pub fn free_decompressed_buffer(
         self: *FetchQuery,
-    ) void
-    {
-        if (self.decompressed_buffer)
-            |buf|
-        {
+    ) void {
+        if (self.decompressed_buffer) |buf| {
             self.allocator.free(buf);
             self.decompressed_buffer = null;
         }
@@ -413,28 +366,22 @@ pub const FetchQuery = struct
 /// so on)
 fn query_from_response(
     response: [*c]const sfetch.Response,
-) *FetchQuery
-{
-    return @as(
-        *const *FetchQuery,
-        @alignCast(@ptrCast(response.*.user_data.?))
-    ).*;
+) *FetchQuery {
+    return @as(*const *FetchQuery, @ptrCast(@alignCast(response.*.user_data.?))).*;
 }
 
 /// Wraps the user callback for a more ergonomic zig-interface.
 fn unpack_callback(
     /// fetch response
     response: [*c]const sfetch.Response,
-) callconv(.c) void
-{
+) callconv(.c) void {
     const resp = response.*;
     var fetch_query = query_from_response(response);
     const raw_data = @as([*]const u8, @ptrCast(resp.data.ptr))[0..resp.data.size];
 
     std.debug.print("unpacking callback...\n", .{});
 
-    if (resp.failed == true or resp.fetched != true)
-    {
+    if (resp.failed == true or resp.fetched != true) {
         fetch_query.state = .failed;
 
         // Capture error details
@@ -447,8 +394,7 @@ fn unpack_callback(
         std.debug.print("buffer size: {d}\n", .{fetch_query.buffer.len});
 
         // Copy path if available
-        if (resp.path != null)
-        {
+        if (resp.path != null) {
             const path_slice = std.mem.span(resp.path);
             const copy_len = @min(path_slice.len, error_info.path.len);
             @memcpy(error_info.path[0..copy_len], path_slice[0..copy_len]);
@@ -464,10 +410,8 @@ fn unpack_callback(
         return;
     }
 
-
     // Handle decompression based on compression mode
-    const should_decompress = switch (fetch_query.compression)
-    {
+    const should_decompress = switch (fetch_query.compression) {
         .none => blk: {
             std.debug.print("Not decompressing in sokol fetch\n", .{});
             break :blk false;
@@ -475,12 +419,10 @@ fn unpack_callback(
         .gzip => true,
         .auto_detect => blk: {
             // Check magic bytes first, then fall back to extension
-            if (FetchQuery.has_gzip_magic(raw_data))
-            {
+            if (FetchQuery.has_gzip_magic(raw_data)) {
                 break :blk true;
             }
-            if (resp.path != null)
-            {
+            if (resp.path != null) {
                 const path_slice = std.mem.span(resp.path);
                 break :blk FetchQuery.has_gzip_extension(path_slice);
             }
@@ -488,39 +430,32 @@ fn unpack_callback(
         },
     };
 
-    if (should_decompress)
-    {
-        fetch_query.data = fetch_query.decompress_gzip(raw_data) catch
-            |err|
-        {
-            std.log.err("Decompression failed: {any}", .{err});
-            fetch_query.state = .failed;
-
-            // Set up error info for decompression failure
-            var error_info = FetchError{
-                .error_code = .JS_OTHER, // Reuse as generic error
-                .path = undefined,
-                .path_len = 0,
-            };
-            if (resp.path != null)
+    if (should_decompress) {
+        fetch_query.data = fetch_query.decompress_gzip(raw_data) catch |err|
             {
-                const path_slice = std.mem.span(resp.path);
-                const copy_len = @min(path_slice.len, error_info.path.len);
-                @memcpy(error_info.path[0..copy_len], path_slice[0..copy_len]);
-                error_info.path_len = copy_len;
-            }
-            fetch_query.maybe_error = error_info;
-            return;
-        };
-    }
-    else
-    {
+                std.log.err("Decompression failed: {any}", .{err});
+                fetch_query.state = .failed;
+
+                // Set up error info for decompression failure
+                var error_info = FetchError{
+                    .error_code = .JS_OTHER, // Reuse as generic error
+                    .path = undefined,
+                    .path_len = 0,
+                };
+                if (resp.path != null) {
+                    const path_slice = std.mem.span(resp.path);
+                    const copy_len = @min(path_slice.len, error_info.path.len);
+                    @memcpy(error_info.path[0..copy_len], path_slice[0..copy_len]);
+                    error_info.path_len = copy_len;
+                }
+                fetch_query.maybe_error = error_info;
+                return;
+            };
+    } else {
         fetch_query.data = raw_data;
     }
 
-    if (fetch_query.maybe_callback)
-        |callback|
-    {
+    if (fetch_query.maybe_callback) |callback| {
         callback(fetch_query) catch {
             fetch_query.state = .failed;
             return;
@@ -531,8 +466,7 @@ fn unpack_callback(
 }
 
 /// Options for fetching resources
-pub const FetchOptions = struct
-{
+pub const FetchOptions = struct {
     /// Path to the resource to load
     path: [:0]const u8,
     /// Optional callback that is called when fetch is done
@@ -549,8 +483,7 @@ pub const FetchOptions = struct
 pub fn fetch_resource(
     allocator: std.mem.Allocator,
     options: FetchOptions,
-) !*FetchQuery
-{
+) !*FetchQuery {
     const new_query = try allocator.create(FetchQuery);
     new_query.* = .loading;
     new_query.maybe_callback = options.maybe_callback;
@@ -561,20 +494,18 @@ pub fn fetch_resource(
     // Send fetch request
     // Note: user_data will copy the pointer value itself (8 bytes), not the
     // whole FetchQuery struct
-    new_query.*.handle = sfetch.send(
-        .{
-            .path = options.path,
-            .callback = unpack_callback,
-            .buffer = .{
-                .ptr = &new_query.buffer,
-                .size = new_query.buffer.len,
-            },
-            .user_data = .{
-                .ptr = @ptrCast(&new_query),
-                .size = @sizeOf(*FetchQuery),
-            },
-        }
-    );
+    new_query.*.handle = sfetch.send(.{
+        .path = options.path,
+        .callback = unpack_callback,
+        .buffer = .{
+            .ptr = &new_query.buffer,
+            .size = new_query.buffer.len,
+        },
+        .user_data = .{
+            .ptr = @ptrCast(&new_query),
+            .size = @sizeOf(*FetchQuery),
+        },
+    });
 
     return new_query;
 }
@@ -594,8 +525,7 @@ pub fn fetch_resource_from_path(
     maybe_callback: ?FetchQuery.CallbackFn,
     /// whether or not to handle the gzipping on the sokol side
     compression: Compression,
-) !*FetchQuery
-{
+) !*FetchQuery {
     return fetch_resource(
         allocator,
         .{
@@ -607,12 +537,8 @@ pub fn fetch_resource_from_path(
 }
 //@}
 
-export fn cleanup(
-) void 
-{
-    if (STATE.app.maybe_pre_zgui_shutdown_cleanup)
-        |clean_fn|
-    {
+export fn cleanup() void {
+    if (STATE.app.maybe_pre_zgui_shutdown_cleanup) |clean_fn| {
         clean_fn();
     }
 
@@ -628,14 +554,12 @@ export fn cleanup(
 /// handle keypresses
 export fn event(
     ev: [*c]const sapp.Event,
-) void 
-{
+) void {
     _ = simgui.handleEvent(ev.*);
 
-    // Check if the key event is a key press, and if it is the Escape key 
-    if (ev.*.type == .KEY_DOWN and ev.*.key_code == .ESCAPE) 
-    { 
-        // Quit the application 
+    // Check if the key event is a key press, and if it is the Escape key
+    if (ev.*.type == .KEY_DOWN and ev.*.key_code == .ESCAPE) {
+        // Quit the application
         sapp.quit();
     }
 }
@@ -656,33 +580,30 @@ const SokolApp = struct {
 
     /// a function that gets called during cleanup (free a GPA, etc) before
     /// shutting down the graphics system
-    maybe_pre_zgui_shutdown_cleanup: ?*const fn() void = null,
+    maybe_pre_zgui_shutdown_cleanup: ?*const fn () void = null,
 
     /// optional function that is called once after zgui setup
-    maybe_post_zgui_init: ?*const fn() void = null,
+    maybe_post_zgui_init: ?*const fn () void = null,
 
     /// event handler - for keyboard shortcuts.  Default only catches the
     /// escape key which quits the app
     event: *const fn (ev: [*c]const sapp.Event) callconv(.c) void = &event,
 
-    max_vertices: i32 =  if (IS_WASM) 64 * 1024 else 1024 * 1024,
+    max_vertices: i32 = if (IS_WASM) 64 * 1024 else 1024 * 1024,
 };
 
 pub fn sokol_main(
     comptime app_in: SokolApp,
-) void 
-{
+) void {
     STATE.app = app_in;
 
     // Setup sokol-fetch
-    sfetch.setup(
-        .{
-            // @TODO: experiment with these settings
-            .max_requests = 4,
-            .num_channels = 1,
-            .num_lanes = 2,
-        }
-    );
+    sfetch.setup(.{
+        // @TODO: experiment with these settings
+        .max_requests = 4,
+        .num_channels = 1,
+        .num_lanes = 2,
+    });
 
     sapp.run(
         .{

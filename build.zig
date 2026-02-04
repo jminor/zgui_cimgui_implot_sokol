@@ -7,8 +7,7 @@ const cimgui = @import("cimgui");
 
 pub fn build(
     b: *std.Build,
-) !void 
-{
+) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -19,19 +18,16 @@ pub fn build(
         "implot",
         .{
             .target = target,
-            .optimize=optimize,
+            .optimize = optimize,
         },
     );
 
     // note that the sokol dependency is built with `.with_sokol_imgui = true`
-    const dep_sokol = b.dependency(
-        "sokol",
-        .{
-            .target = target,
-            .optimize = optimize,
-            .with_sokol_imgui = true,
-        }
-    );
+    const dep_sokol = b.dependency("sokol", .{
+        .target = target,
+        .optimize = optimize,
+        .with_sokol_imgui = true,
+    });
 
     const dep_cimgui = b.dependency(
         "cimgui",
@@ -45,8 +41,7 @@ pub fn build(
     const cimgui_conf = cimgui.getConfig(
         // Currently *not* using the docking version, although not for any big
         // reason.
-        false
-    );
+        false);
     const lib_cimgui = dep_cimgui.artifact(cimgui_conf.clib_name);
 
     const dep_undo_journal = b.dependency(
@@ -58,9 +53,7 @@ pub fn build(
     );
 
     // inject the cimgui header search path into the sokol C library compile step
-    dep_sokol.artifact("sokol_clib").addIncludePath(
-        dep_cimgui.path(cimgui_conf.include_dir)
-    );
+    dep_sokol.artifact("sokol_clib").addIncludePath(dep_cimgui.path(cimgui_conf.include_dir));
 
     // Assemble Module
     ///////////////////////////////////////////////////////////////////////////
@@ -72,7 +65,7 @@ pub fn build(
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ 
+                .{
                     .name = "sokol",
                     .module = dep_sokol.module("sokol"),
                 },
@@ -88,24 +81,22 @@ pub fn build(
         },
     );
 
-    const lib_imgui = b.addLibrary(
-        .{ 
-            .linkage = .static,
-            .name = "imgui",
-            .root_module = b.createModule(
-                .{
-                    .target = target,
-                    .optimize = optimize,
-                    .link_libcpp = true,
-                    .link_libc = true,
-                },
-            ),
-        }
-    );
+    const lib_imgui = b.addLibrary(.{
+        .linkage = .static,
+        .name = "imgui",
+        .root_module = b.createModule(
+            .{
+                .target = target,
+                .optimize = optimize,
+                .link_libcpp = true,
+                .link_libc = true,
+            },
+        ),
+    });
 
     lib_imgui.addIncludePath(dep_sokol.path("src/sokol/c"));
 
-    const cflags = [_][]const u8 {
+    const cflags = [_][]const u8{
         "-fno-sanitize=undefined",
         "-Wno-elaborated-enum-base",
         "-Wno-error=date-time",
@@ -115,8 +106,8 @@ pub fn build(
         .{
             .root = b.path("src"),
             .files = &.{
-                 "zgui.cpp",
-                 "zplot.cpp",
+                "zgui.cpp",
+                "zplot.cpp",
             },
             .flags = &cflags,
         },
@@ -143,19 +134,17 @@ pub fn build(
     mod_ziis.linkLibrary(lib_imgui);
 
     // Web Worker C interop library (WASM only)
-    const lib_worker_interop = b.addLibrary(
-        .{
-            .linkage = .static,
-            .name = "worker_interop",
-            .root_module = b.createModule(
-                .{
-                    .target = target,
-                    .optimize = optimize,
-                    .link_libc = true,
-                },
-            ),
-        }
-    );
+    const lib_worker_interop = b.addLibrary(.{
+        .linkage = .static,
+        .name = "worker_interop",
+        .root_module = b.createModule(
+            .{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            },
+        ),
+    });
 
     // Only add worker interop for WASM targets
     if (target.result.cpu.arch.isWasm()) {
@@ -177,10 +166,7 @@ pub fn build(
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{
-                    .name = "zgui_cimgui_implot_sokol",
-                    .module = mod_ziis 
-                },
+                .{ .name = "zgui_cimgui_implot_sokol", .module = mod_ziis },
             },
         },
     );
@@ -199,8 +185,7 @@ pub fn build(
 
     // For WASM, zig test doesn't work (test runner needs POSIX)
     // Just ensure thread.zig compiles as a library
-    if (target.result.cpu.arch.isWasm())
-    {
+    if (target.result.cpu.arch.isWasm()) {
         const wasm_thread_lib = b.addLibrary(
             .{
                 .name = "thread_wasm_check",
@@ -212,9 +197,7 @@ pub fn build(
             },
         );
         check_step.dependOn(&wasm_thread_lib.step);
-    }
-    else
-    {
+    } else {
         // Native: run full tests
         const test_mod = b.createModule(
             .{
@@ -258,8 +241,7 @@ pub fn build(
     ///////////////////////////////////////////////////////////////////////////
 
     // from here on different handling for native vs wasm builds
-    if (target.result.cpu.arch.isWasm())
-    {
+    if (target.result.cpu.arch.isWasm()) {
         const run_step = try build_wasm(
             b,
             .{
@@ -277,34 +259,20 @@ pub fn build(
         );
 
         // install example.json and source file for examples
-        run_step.dependOn(
-            &(
-                b.addInstallFile(
-                    b.path("example.json"),
-                    "web/example.json",
-                ).step
-            )
-        );
-        run_step.dependOn(
-            &(
-                b.addInstallFile(
-                    b.path("src/app_wrapper_demo.zig"),
-                    "web/src/app_wrapper_demo.zig",
-                ).step
-            )
-        );
+        run_step.dependOn(&(b.addInstallFile(
+            b.path("example.json"),
+            "web/example.json",
+        ).step));
+        run_step.dependOn(&(b.addInstallFile(
+            b.path("src/app_wrapper_demo.zig"),
+            "web/src/app_wrapper_demo.zig",
+        ).step));
         // install worker harness JavaScript
-        run_step.dependOn(
-            &(
-                b.addInstallFile(
-                    b.path("src/worker_js_harness.js"),
-                    "web/worker_js_harness.js",
-                ).step
-            )
-        );
-    }
-    else
-    {
+        run_step.dependOn(&(b.addInstallFile(
+            b.path("src/worker_js_harness.js"),
+            "web/worker_js_harness.js",
+        ).step));
+    } else {
         try build_native(
             b,
             mod_app_wrapper,
@@ -318,8 +286,7 @@ fn build_native(
     b: *std.Build,
     mod: *std.Build.Module,
     check_step: *std.Build.Step,
-) !void 
-{
+) !void {
     const exe = b.addExecutable(
         .{
             .name = "demo",
@@ -328,10 +295,7 @@ fn build_native(
     );
     check_step.dependOn(&exe.step);
     b.installArtifact(exe);
-    var run_step = b.step(
-        "run-demo",
-        "Run demo"
-    );
+    var run_step = b.step("run-demo", "Run demo");
 
     run_step.dependOn(&b.addRunArtifact(exe).step);
 }
@@ -348,8 +312,7 @@ pub fn build_wasm(
         optimize: std.builtin.OptimizeMode,
         dep_c_libs: []const *std.Build.Step.Compile,
     },
-) !*std.Build.Step 
-{
+) !*std.Build.Step {
     // build the main file into a library, this is because the WASM 'exe'
     // needs to be linked in a separate build step with the Emscripten linker
     const main_app = outer_builder.addLibrary(
@@ -364,14 +327,11 @@ pub fn build_wasm(
         main_app.linkLibrary(lib);
     }
 
-    const dep_sokol = opts.dep_ziis_builder.dependency(
-        "sokol",
-        .{
-            .target = opts.target,
-            .optimize = opts.optimize,
-            .with_sokol_imgui = true,
-        }
-    );
+    const dep_sokol = opts.dep_ziis_builder.dependency("sokol", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .with_sokol_imgui = true,
+    });
 
     // get the Emscripten SDK dependency from the sokol dependency
     const dep_emsdk = dep_sokol.builder.dependency(
@@ -390,9 +350,7 @@ pub fn build_wasm(
     // WASM this makes sure that the Emscripten SDK has been setup before
     // C compilation is attempted (since the sokol C library depends on the
     // Emscripten SDK setup step)
-    for (opts.dep_c_libs)
-        |lib|
-    {
+    for (opts.dep_c_libs) |lib| {
         lib.addSystemIncludePath(emsdk_incl_path);
         lib.step.dependOn(&dep_sokol.artifact("sokol_clib").step);
     }
@@ -413,12 +371,12 @@ pub fn build_wasm(
                 "src/sokol/web/shell.html",
             ),
             .extra_args = &.{
-                "-sINITIAL_MEMORY=134217728",  // 128MB initial memory
-                "-sMAXIMUM_MEMORY=268435456",   // 256MB maximum memory
-                "-sALLOW_MEMORY_GROWTH=1",      // Allow memory to grow
-                "-sSTACK_SIZE=5242880",         // 5MB stack size
-                "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']",  // Export standard functions
-                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']",  // Export runtime methods for JS interop
+                "-sINITIAL_MEMORY=134217728", // 128MB initial memory
+                "-sMAXIMUM_MEMORY=268435456", // 256MB maximum memory
+                "-sALLOW_MEMORY_GROWTH=1", // Allow memory to grow
+                "-sSTACK_SIZE=5242880", // 5MB stack size
+                "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']", // Export standard functions
+                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", // Export runtime methods for JS interop
             },
         },
     );
@@ -428,17 +386,9 @@ pub fn build_wasm(
 
     // install step
 
-    var buf:[1024]u8 = undefined;
-    const install_name = try std.fmt.bufPrint(
-        &buf,
-        "install-{s}",
-        .{opts.app_name}
-    );
-    const install_desc = try std.fmt.bufPrint(
-        buf[install_name.len..],
-        "Install {s} WASM artifact without running.",
-        .{opts.app_name}
-    );
+    var buf: [1024]u8 = undefined;
+    const install_name = try std.fmt.bufPrint(&buf, "install-{s}", .{opts.app_name});
+    const install_desc = try std.fmt.bufPrint(buf[install_name.len..], "Install {s} WASM artifact without running.", .{opts.app_name});
 
     const install_step = outer_builder.step(
         install_name,
@@ -460,16 +410,8 @@ pub fn build_wasm(
     );
     run.step.dependOn(install_step);
 
-    const run_name = try std.fmt.bufPrint(
-        &buf,
-        "run-{s}",
-        .{opts.app_name}
-    );
-    const run_desc = try std.fmt.bufPrint(
-        buf[run_name.len..],
-        "Run {s} as a wasm build.",
-        .{opts.app_name}
-    );
+    const run_name = try std.fmt.bufPrint(&buf, "run-{s}", .{opts.app_name});
+    const run_desc = try std.fmt.bufPrint(buf[run_name.len..], "Run {s} as a wasm build.", .{opts.app_name});
 
     outer_builder.step(
         run_name,

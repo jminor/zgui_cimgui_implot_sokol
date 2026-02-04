@@ -174,7 +174,6 @@ pub const ConfigFlags = packed struct(c_int) {
     _padding: u10 = 0,
 };
 
-
 pub const FreeTypeLoaderFlags = packed struct(c_uint) {
     no_hinting: bool = false,
     no_auto_hint: bool = false,
@@ -3693,12 +3692,12 @@ var temp_buffer: ?std.ArrayList(u8) = null;
 
 pub fn format(comptime fmt: []const u8, args: anytype) []const u8 {
     const len = std.fmt.count(fmt, args);
-    if (len > temp_buffer.?.items.len) temp_buffer.?.resize(mem_allocator.?,@intCast(len + 64)) catch unreachable;
+    if (len > temp_buffer.?.items.len) temp_buffer.?.resize(mem_allocator.?, @intCast(len + 64)) catch unreachable;
     return std.fmt.bufPrint(temp_buffer.?.items, fmt, args) catch unreachable;
 }
 pub fn formatZ(comptime fmt: []const u8, args: anytype) [:0]const u8 {
     const len = std.fmt.count(fmt ++ "\x00", args);
-    if (len > temp_buffer.?.items.len) temp_buffer.?.resize(mem_allocator.?,@intCast(len + 64)) catch unreachable;
+    if (len > temp_buffer.?.items.len) temp_buffer.?.resize(mem_allocator.?, @intCast(len + 64)) catch unreachable;
     return std.fmt.bufPrintZ(temp_buffer.?.items, fmt, args) catch unreachable;
 }
 //--------------------------------------------------------------------------------------------------
@@ -4031,7 +4030,7 @@ pub fn beginDragDropSource(flags: DragDropFlags) bool {
 
 /// Note: `payload_type` can be at most 32 characters long
 pub fn setDragDropPayload(payload_type: [*:0]const u8, data: []const u8, cond: Condition) bool {
-    return zguiSetDragDropPayload(payload_type, @alignCast(@ptrCast(data.ptr)), data.len, cond);
+    return zguiSetDragDropPayload(payload_type, @ptrCast(@alignCast(data.ptr)), data.len, cond);
 }
 pub fn endDragDropSource() void {
     zguiEndDragDropSource();

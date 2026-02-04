@@ -15,8 +15,7 @@ const Journal = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         max_depth: usize,
-    ) !Journal
-    {
+    ) !Journal {
         var entries = std.ArrayList(command.Command).init(allocator);
         try entries.ensureTotalCapacity(max_depth);
 
@@ -31,37 +30,32 @@ const Journal = struct {
     pub fn add(
         self: *@This(),
         cmd: command.Command,
-    ) !void
-    {
+    ) !void {
         try self.entries.append(cmd);
 
-        if (self.entries.items.len > self.max_depth) 
-        {
+        if (self.entries.items.len > self.max_depth) {
             var popped_thing = self.entries.orderedRemove(0);
             popped_thing.destroy(self.allocator);
         }
     }
 
     /// undo the last command added to the journal
-     pub fn undo(
-         self: *@This(),
-     ) !void
-     {
-         if (self.entries.items.len == 0) {
-             return;
-         }
+    pub fn undo(
+        self: *@This(),
+    ) !void {
+        if (self.entries.items.len == 0) {
+            return;
+        }
 
-         const cmd = self.entries.pop().?;
-         try cmd.undo();
-         cmd.destroy(self.allocator);
-     }
+        const cmd = self.entries.pop().?;
+        try cmd.undo();
+        cmd.destroy(self.allocator);
+    }
 
     pub fn deinit(
         self: *@This(),
-    ) void
-    {
-        while (self.entries.items.len > 0)
-        {
+    ) void {
+        while (self.entries.items.len > 0) {
             const cmd = self.entries.pop();
             cmd.?.destroy(self.allocator);
         }
@@ -71,14 +65,13 @@ const Journal = struct {
     }
 };
 
-test "Journal Test"
-{
+test "Journal Test" {
     const TEST_TYPE = i32;
-    const TEST_JOURNAL_LIMIT:usize = 3;
+    const TEST_JOURNAL_LIMIT: usize = 3;
 
     var journal = try Journal.init(
         std.testing.allocator,
-        TEST_JOURNAL_LIMIT, 
+        TEST_JOURNAL_LIMIT,
     );
     defer journal.deinit();
 
@@ -94,14 +87,8 @@ test "Journal Test"
         try cmd.do();
         try std.testing.expectEqual(142, value);
 
-        try std.testing.expectEqual(
-            TEST_JOURNAL_LIMIT,
-            journal.max_depth
-        );
-        try std.testing.expectEqual(
-            0,
-            journal.entries.items.len
-        );
+        try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
+        try std.testing.expectEqual(0, journal.entries.items.len);
 
         try journal.add(cmd);
         try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
@@ -112,10 +99,8 @@ test "Journal Test"
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(0, journal.entries.items.len);
 
-    var i:TEST_TYPE = 1;
-    while (i <= 5)
-        : (i+=1)
-    {
+    var i: TEST_TYPE = 1;
+    while (i <= 5) : (i += 1) {
         const cmd = try command.SetValue(TEST_TYPE).init(
             std.testing.allocator,
             &value,
@@ -134,35 +119,28 @@ test "Journal Test"
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.entries.items.len);
 
-    while (journal.entries.items.len > 0)
-        : (try journal.undo())
-    {
-    }
+    while (journal.entries.items.len > 0) : (try journal.undo()) {}
 
     try std.testing.expectEqual(2, value);
 
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(0, journal.entries.items.len);
-
 }
 
-test "Journal Test (undo/redo)"
-{
+test "Journal Test (undo/redo)" {
     const TEST_TYPE = i32;
-    const TEST_JOURNAL_LIMIT:usize = 3;
+    const TEST_JOURNAL_LIMIT: usize = 3;
 
     var journal = try Journal.init(
         std.testing.allocator,
-        TEST_JOURNAL_LIMIT, 
+        TEST_JOURNAL_LIMIT,
     );
     defer journal.deinit();
 
     var value: TEST_TYPE = 12;
 
-    var i:TEST_TYPE = 1;
-    while (i <= 5)
-        : (i+=1)
-    {
+    var i: TEST_TYPE = 1;
+    while (i <= 5) : (i += 1) {
         const cmd = try command.SetValue(TEST_TYPE).init(
             std.testing.allocator,
             &value,
