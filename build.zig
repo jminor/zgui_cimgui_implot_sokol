@@ -130,6 +130,7 @@ pub fn build(
             .root = b.path("src"),
             .files = &.{
                 "stb_image_impl.c",
+                "stb_image_write_impl.c",
             },
             .flags = &.{
                 "-fno-sanitize=undefined",
@@ -388,6 +389,18 @@ fn build_native(
             .root_module = mod_zplay,
         },
     );
+    if (zplay_exe.rootModuleTarget().os.tag == .macos) {
+        zplay_exe.addCSourceFiles(.{
+            .root = b.path("src"),
+            .files = &.{"screenshot.m"},
+            .flags = &.{"-fobjc-arc"},
+        });
+        zplay_exe.linkFramework("Foundation");
+        zplay_exe.linkFramework("Metal");
+        zplay_exe.linkFramework("MetalKit");
+        zplay_exe.linkFramework("Cocoa");
+        zplay_exe.linkFramework("QuartzCore");
+    }
     check_step.dependOn(&zplay_exe.step);
     b.installArtifact(zplay_exe);
 
