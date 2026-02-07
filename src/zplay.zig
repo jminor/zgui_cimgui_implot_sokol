@@ -1,6 +1,6 @@
 //! zplay - A video player application
 //! Loads and plays video files using libav/FFmpeg with timeline,
-//! transport controls, and playback rate control.
+//! transport controls, playback rate control, and audio playback.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -9,6 +9,7 @@ const ziis = @import("zgui_cimgui_implot_sokol");
 const zgui = ziis.zgui;
 const sg = ziis.sokol.gfx;
 const sapp = ziis.sokol.app;
+const saudio = ziis.sokol.audio;
 const app_wrapper = ziis.app_wrapper;
 const cimgui = ziis.cimgui;
 
@@ -20,7 +21,7 @@ const IS_WASM = builtin.target.cpu.arch.isWasm();
 const STATE = struct {
     // Video data
     var video_path: [:0]const u8 = "";
-    var decoder: ?*libav.VideoDecoder = null;
+    var decoder: ?*libav.MediaDecoder = null;
     var video_tex: sg.Image = .{};
     var video_view: sg.View = .{};
     var video_texid: u64 = 0;
@@ -28,6 +29,12 @@ const STATE = struct {
     var video_height: u32 = 0;
     var video_loaded: bool = false;
     var load_error: ?[]const u8 = null;
+
+    // Audio state
+    var has_audio: bool = false;
+    var audio_initialized: bool = false;
+    var volume: f32 = 1.0;
+    var is_muted: bool = false;
 
     // Playback state
     var is_playing: bool = false;
@@ -60,9 +67,70 @@ const STATE = struct {
 var debug_allocator = if (IS_WASM) null else std.heap.DebugAllocator(.{}){};
 const allocator = if (IS_WASM) std.heap.c_allocator else debug_allocator.allocator();
 
+/// Audio callback - called from audio thread to fill the buffer
+fn audioCallback(buffer: [*c]f32, num_frames: i32, num_channels: i32) callconv(.c) void {
+    const dec = STATE.decoder orelse {
+        // No decoder, fill with silence
+        const total_samples: usize = @intCast(num_frames * num_channels);
+        for (0..total_samples) |i| {
+            buffer[i] = 0;
+        }
+        return;
+    };
+
+    if (!STATE.is_playing or !STATE.has_audio) {
+        // Not playing or no audio, fill with silence
+        const total_samples: usize = @intCast(num_frames * num_channels);
+        for (0..total_samples) |i| {
+            buffer[i] = 0;
+        }
+        return;
+    }
+
+    // Calculate effective volume (0 if muted)
+    const effective_volume = if (STATE.is_muted) 0.0 else STATE.volume;
+
+    // Read samples from decoder's ring buffer
+    const total_samples: usize = @intCast(num_frames * num_channels);
+    var buf_slice: []f32 = undefined;
+    buf_slice.ptr = buffer;
+    buf_slice.len = total_samples;
+    _ = dec.readAudioSamples(buf_slice, effective_volume);
+}
+
+/// Initialize audio subsystem
+fn initAudio() void {
+    if (STATE.audio_initialized) return;
+
+    saudio.setup(.{
+        .sample_rate = 44100,
+        .num_channels = 2,
+        .stream_cb = audioCallback,
+        .buffer_frames = 2048,
+    });
+
+    if (saudio.isvalid()) {
+        STATE.audio_initialized = true;
+        std.log.info("Audio initialized: {} Hz, {} channels", .{
+            saudio.sampleRate(),
+            saudio.channels(),
+        });
+    } else {
+        std.log.warn("Failed to initialize audio", .{});
+    }
+}
+
+/// Shutdown audio subsystem
+fn shutdownAudio() void {
+    if (STATE.audio_initialized) {
+        saudio.shutdown();
+        STATE.audio_initialized = false;
+    }
+}
+
 /// Load video from file path
 fn loadVideo(path: [:0]const u8) !void {
-    STATE.decoder = libav.VideoDecoder.open(allocator, path) catch |err| {
+    STATE.decoder = libav.MediaDecoder.open(allocator, path) catch |err| {
         STATE.load_error = switch (err) {
             libav.Error.OpenInputFailed => "Failed to open video file",
             libav.Error.FindStreamInfoFailed => "Failed to find stream info",
@@ -81,6 +149,7 @@ fn loadVideo(path: [:0]const u8) !void {
     STATE.video_height = dec.height;
     STATE.duration = dec.duration_sec;
     STATE.fps = dec.fps;
+    STATE.has_audio = dec.has_audio;
 
     // Create initial texture (stream_update for dynamic content)
     STATE.video_tex = sg.makeImage(.{
@@ -101,15 +170,16 @@ fn loadVideo(path: [:0]const u8) !void {
     STATE.last_frame_time = std.time.milliTimestamp();
 
     // Decode first frame
-    if (dec.decodeNextFrame()) |_| {
+    if (dec.decodeNextVideoFrame()) |_| {
         updateTexture();
     }
 
-    std.log.info("Video loaded: {}x{} @ {d:.2} fps, duration: {d:.2}s", .{
+    std.log.info("Video loaded: {}x{} @ {d:.2} fps, duration: {d:.2}s, audio: {}", .{
         dec.width,
         dec.height,
         dec.fps,
         dec.duration_sec,
+        dec.has_audio,
     });
 }
 
@@ -219,7 +289,7 @@ fn updatePlayback() void {
     while (STATE.frame_accumulator >= frame_duration) {
         STATE.frame_accumulator -= frame_duration;
 
-        if (dec.decodeNextFrame()) |_| {
+        if (dec.decodeNextVideoFrame()) |_| {
             STATE.current_time = dec.getCurrentTime();
             updateTexture();
         } else if (dec.isEof()) {
@@ -227,7 +297,7 @@ fn updatePlayback() void {
             STATE.is_playing = false;
             dec.reset() catch {};
             STATE.current_time = 0;
-            if (dec.decodeNextFrame()) |_| {
+            if (dec.decodeNextVideoFrame()) |_| {
                 updateTexture();
             }
             break;
@@ -363,7 +433,7 @@ fn drawTimeline() void {
     zgui.dummy(.{ .w = timeline_width, .h = timeline_h + 10 });
 }
 
-/// Draw transport controls (play/pause, stop, rate)
+/// Draw transport controls (play/pause, stop, rate, volume)
 fn drawTransportControls() void {
     // Skip backward
     if (zgui.button("|<", .{ .w = 40 })) {
@@ -421,7 +491,7 @@ fn drawTransportControls() void {
     // Frame forward
     if (zgui.button(">", .{ .w = 30 })) {
         if (STATE.decoder) |dec| {
-            if (dec.decodeNextFrame()) |_| {
+            if (dec.decodeNextVideoFrame()) |_| {
                 STATE.current_time = dec.getCurrentTime();
                 updateTexture();
             }
@@ -484,12 +554,47 @@ fn drawTransportControls() void {
     zgui.spacing();
     zgui.sameLine(.{});
 
+    // Audio controls (only show if audio is available)
+    if (STATE.has_audio) {
+        // Mute button
+        const mute_label = if (STATE.is_muted) "Unmute" else "Mute";
+        if (zgui.button(mute_label, .{ .w = 60 })) {
+            STATE.is_muted = !STATE.is_muted;
+        }
+
+        zgui.sameLine(.{});
+
+        // Volume slider
+        zgui.text("Vol:", .{});
+        zgui.sameLine(.{});
+
+        zgui.pushItemWidth(80);
+        _ = zgui.sliderFloat("##volume", .{
+            .v = &STATE.volume,
+            .min = 0.0,
+            .max = 1.0,
+            .cfmt = "%.0f%%",
+            .flags = .{},
+        });
+        // Display as percentage
+        if (zgui.isItemHovered(.{}) and zgui.beginItemTooltip()) {
+            zgui.text("Volume: {d:.0}%", .{STATE.volume * 100});
+            zgui.endTooltip();
+        }
+        zgui.popItemWidth();
+
+        zgui.sameLine(.{});
+        zgui.spacing();
+        zgui.sameLine(.{});
+    }
+
     // Video info
-    zgui.text("| {d:.2} fps | {}x{} | {s}", .{
+    const audio_str = if (STATE.has_audio) " [Audio]" else "";
+    zgui.text("| {d:.2} fps | {}x{}{s}", .{
         STATE.fps,
         STATE.video_width,
         STATE.video_height,
-        STATE.video_path,
+        audio_str,
     });
 }
 
@@ -513,6 +618,9 @@ fn formatRate(rate: f32) [:0]const u8 {
 var rate_buffer: [16]u8 = undefined;
 
 fn cleanup() void {
+    // Shutdown audio
+    shutdownAudio();
+
     // Close video decoder
     if (STATE.decoder) |dec| {
         dec.close();
@@ -539,6 +647,9 @@ fn cleanup() void {
 }
 
 fn init() void {
+    // Initialize audio
+    initAudio();
+
     // Video loading happens in main() before sokol_main, but texture creation
     // must happen here after graphics are initialized
     if (STATE.video_path.len > 0 and !STATE.video_loaded) {

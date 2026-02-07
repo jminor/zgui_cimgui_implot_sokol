@@ -227,6 +227,7 @@ pub fn build(
         mod_zplay.linkSystemLibrary("avformat", .{});
         mod_zplay.linkSystemLibrary("avutil", .{});
         mod_zplay.linkSystemLibrary("swscale", .{});
+        mod_zplay.linkSystemLibrary("swresample", .{});
     }
 
     // for zls -- "check" step
