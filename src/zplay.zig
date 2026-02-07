@@ -51,14 +51,12 @@ const STATE = struct {
     var texture_updated_this_frame: bool = false;
 
     // View state
-    var zoom: f32 = 1.0;
-    var needs_initial_fit: bool = true;
     var seek_requested: bool = false;
     var seek_time: f64 = 0.0;
 
     // UI constants
-    const SIDEBAR_WIDTH: f32 = 200.0;
-    const HEADER_HEIGHT: f32 = 60.0;
+    const TOOLBAR_HEIGHT: f32 = 38.0;
+    const TIMELINE_HEIGHT: f32 = 33.0;
     const SPACING: f32 = 8.0;
 
     // Playback rates
@@ -231,25 +229,24 @@ fn draw() !void {
     )) {
         defer zgui.end();
 
-        const s_width = STATE.SIDEBAR_WIDTH;
-        const h_height = STATE.HEADER_HEIGHT;
-        const spacing = STATE.SPACING;
+        const toolbar_h = STATE.TOOLBAR_HEIGHT;
 
-        const bottom_bar_h: f32 = 44.0;
-        const bottom_y = size[1] - bottom_bar_h - 12;
-        const content_x = s_width + spacing;
-        const content_y = h_height + spacing * 2;
-        const content_w = size[0] - content_x - spacing;
-        const content_h = bottom_y - content_y - spacing;
+        // Bottom toolbar is at the very bottom, spanning full width
+        const toolbar_y = size[1] - toolbar_h;
+
+        // Status bar (timeline) is above the toolbar
+        const bottom_bar_h = STATE.TIMELINE_HEIGHT;
+        const bottom_y = toolbar_y - bottom_bar_h;
+
+        // Video content fills top, left, right edges
+        const content_x: f32 = 0;
+        const content_y: f32 = 0;
+        const content_w = size[0];
+        const content_h = bottom_y;
 
         zgui.setCursorPos(.{ content_x, content_y });
 
         if (STATE.video_loaded) {
-            if (STATE.needs_initial_fit) {
-                fitToWindow();
-                STATE.needs_initial_fit = false;
-            }
-
             if (zgui.beginChild(
                 "ContentRegion",
                 .{
@@ -266,17 +263,17 @@ fn draw() !void {
 
             drawBottomStatus(content_x, bottom_y, content_w, bottom_bar_h);
         } else if (STATE.load_error) |err| {
+            zgui.setCursorPos(.{ 50, 50 });
             zgui.text("ERROR: {s}", .{err});
         } else {
-            zgui.setCursorPos(.{ content_x + 50, content_y + 50 });
+            zgui.setCursorPos(.{ 50, 50 });
             zgui.text("WAITING FOR INPUT...", .{});
-            zgui.setCursorPosX(content_x + 50);
+            zgui.setCursorPosX(50);
             zgui.text("USAGE: zplay <file>", .{});
         }
 
-        drawSidebarControls();
-
-        drawRightRail(content_x + content_w - 170, content_y + 24, 150, 22, 10);
+        // Draw bottom toolbar with transport controls (spans full width)
+        drawBottomToolbar(0, toolbar_y, size[0], toolbar_h);
     }
 }
 
@@ -330,34 +327,18 @@ fn updatePlayback() void {
     }
 }
 
-/// Fit video to window
-fn fitToWindow() void {
-    if (!STATE.video_loaded) return;
-
-    const vp = zgui.getMainViewport();
-    const size = vp.getSize();
-
-    // Calculate available space for video
-    // Subtract Sidebar, Header, and Timeline space
-    const avail_w = size[0] - STATE.SIDEBAR_WIDTH - STATE.SPACING * 2;
-    const avail_h = size[1] - STATE.HEADER_HEIGHT - 60; // Approximate
-
-    const vid_w: f32 = @floatFromInt(STATE.video_width);
-    const vid_h: f32 = @floatFromInt(STATE.video_height);
-
-    const scale_w = avail_w / vid_w;
-    const scale_h = avail_h / vid_h;
-
-    STATE.zoom = @min(scale_w, scale_h);
-}
-
 /// Draw the video display area
 fn drawVideoView(avail_w: f32, avail_h: f32) void {
     const vid_w: f32 = @floatFromInt(STATE.video_width);
     const vid_h: f32 = @floatFromInt(STATE.video_height);
 
-    const display_w = vid_w * STATE.zoom;
-    const display_h = vid_h * STATE.zoom;
+    // Always scale video to fit within available space (no scrollbars)
+    const scale_w = avail_w / vid_w;
+    const scale_h = avail_h / vid_h;
+    const scale = @min(scale_w, scale_h);
+
+    const display_w = vid_w * scale;
+    const display_h = vid_h * scale;
 
     if (zgui.beginChild(
         "VideoFrame",
@@ -365,10 +346,10 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
             .w = avail_w,
             .h = avail_h,
             .child_flags = .{
-                .border = true,
+                .border = false,
             },
             .window_flags = .{
-                .horizontal_scrollbar = false,
+                .no_scrollbar = true,
                 .no_background = true,
             },
         },
@@ -376,14 +357,9 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
         defer zgui.endChild();
 
         // Center the video
-        if (display_w < avail_w) {
-            const offset_x = (avail_w - display_w) / 2;
-            zgui.setCursorPosX(offset_x);
-        }
-        if (display_h < avail_h) {
-            const offset_y = (avail_h - display_h) / 2;
-            zgui.setCursorPosY(offset_y);
-        }
+        const offset_x = (avail_w - display_w) / 2;
+        const offset_y = (avail_h - display_h) / 2;
+        zgui.setCursorPos(.{ offset_x, offset_y });
 
         // Draw the video frame
         cimgui.igImage(
@@ -402,35 +378,46 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     const progress = if (STATE.duration > 0) STATE.current_time / STATE.duration else 0;
     const progress_w = w * @as(f32, @floatCast(progress));
 
+    // Draw progress bar (no rounded edges)
     if (progress_w > 0) {
         draw_list.addRectFilled(.{
             .pmin = .{ x, y },
             .pmax = .{ x + progress_w, y + h },
             .col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 }),
-            .rounding = h / 2.0,
-            .flags = .{ .round_corners_top_right = true, .round_corners_bottom_right = true },
+            .rounding = 0,
         });
     }
 
-    zgui.setCursorScreenPos(.{ x + 20, y + (h - zgui.getTextLineHeight()) / 2 });
+    // Draw bright vertical playhead line
+    const playhead_x = x + progress_w;
+    draw_list.addLine(.{
+        .p1 = .{ playhead_x, y },
+        .p2 = .{ playhead_x, y + h },
+        .col = zgui.colorConvertFloat4ToU32(.{ 1.0, 1.0, 1.0, 1.0 }),
+        .thickness = 2.0,
+    });
 
-    var info_buf: [128]u8 = undefined;
-    const info_str = std.fmt.bufPrintZ(&info_buf, "RES: {d}x{d}   FPS: {d:.2}", .{
-        STATE.video_width,
-        STATE.video_height,
-        STATE.fps,
-    }) catch "INFO ERROR";
+    // Draw timecode: current / total
+    // Format current time
+    const cur_total_sec: u32 = @intFromFloat(@max(0, STATE.current_time));
+    const cur_mins = cur_total_sec / 60;
+    const cur_secs = cur_total_sec % 60;
+    const cur_ms: u32 = @intFromFloat(@mod(STATE.current_time * 1000, 1000));
 
-    zgui.text("{s}", .{info_str});
+    // Format duration
+    const dur_total_sec: u32 = @intFromFloat(@max(0, STATE.duration));
+    const dur_mins = dur_total_sec / 60;
+    const dur_secs = dur_total_sec % 60;
+    const dur_ms: u32 = @intFromFloat(@mod(STATE.duration * 1000, 1000));
 
     var time_buf: [64]u8 = undefined;
-    const time_str = std.fmt.bufPrintZ(&time_buf, "{s} / {s}", .{
-        formatTime(STATE.current_time),
-        formatTime(STATE.duration),
-    }) catch "00:00 / 00:00";
+    const time_str = std.fmt.bufPrintZ(&time_buf, "{d:0>2}:{d:0>2}.{d:0>3} / {d:0>2}:{d:0>2}.{d:0>3}", .{
+        cur_mins, cur_secs, cur_ms,
+        dur_mins, dur_secs, dur_ms,
+    }) catch "00:00.000 / 00:00.000";
 
     const text_size = zgui.calcTextSize(time_str, .{});
-    zgui.setCursorScreenPos(.{ x + w - text_size[0] - 20, y + (h - zgui.getTextLineHeight()) / 2 });
+    zgui.setCursorScreenPos(.{ x + (w - text_size[0]) / 2, y + (h - zgui.getTextLineHeight()) / 2 });
     zgui.text("{s}", .{time_str});
 
     zgui.setCursorScreenPos(.{ x, y });
@@ -459,19 +446,36 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     zgui.popStyleColor(.{ .count = 5 });
 }
 
-/// Draw controls in the sidebar
-fn drawSidebarControls() void {
-    const s_width = STATE.SIDEBAR_WIDTH;
-    const h_height = STATE.HEADER_HEIGHT;
-    const spacing = STATE.SPACING;
+/// Draw the bottom toolbar with transport controls
+fn drawBottomToolbar(x: f32, y: f32, w: f32, h: f32) void {
+    const draw_list = zgui.getWindowDrawList();
+    const spacing: f32 = 6.0;
+    const btn_h: f32 = 25.0;
+    const btn_w: f32 = 55.0;
 
-    zgui.setCursorPos(.{ spacing, h_height + spacing });
+    // Draw toolbar background
+    draw_list.addRectFilled(.{
+        .pmin = .{ x, y },
+        .pmax = .{ x + w, y + h },
+        .col = zgui.colorConvertFloat4ToU32(.{ 0.15, 0.15, 0.15, 1.0 }),
+        .rounding = 0,
+    });
 
-    const btn_w = s_width - spacing * 2;
-    const btn_h = 30.0;
+    // Calculate vertical center for buttons
+    const btn_y = y + (h - btn_h) / 2;
+    var cur_x = x + spacing;
 
-    zgui.setCursorPos(.{ spacing, h_height + spacing });
+    // Skip backward button
+    zgui.setCursorScreenPos(.{ cur_x, btn_y });
+    if (zgui.button("<<", .{ .w = 35, .h = btn_h })) {
+        const step = 1.0 / STATE.fps;
+        STATE.seek_requested = true;
+        STATE.seek_time = @max(0, STATE.current_time - step * 60);
+    }
+    cur_x += 35 + spacing;
 
+    // Play/Pause button
+    zgui.setCursorScreenPos(.{ cur_x, btn_y });
     if (zgui.button(if (STATE.is_playing) "PAUSE" else "PLAY", .{ .w = btn_w, .h = btn_h })) {
         STATE.is_playing = !STATE.is_playing;
         if (STATE.is_playing) {
@@ -479,27 +483,23 @@ fn drawSidebarControls() void {
             STATE.frame_accumulator = 0;
         }
     }
+    cur_x += btn_w + spacing;
 
-    zgui.dummy(.{ .w = 0, .h = spacing });
-
-    if (zgui.button("<<", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
-        const step = 1.0 / STATE.fps;
-        STATE.seek_requested = true;
-        STATE.seek_time = @max(0, STATE.current_time - step * 60);
-    }
-    zgui.sameLine(.{});
-    if (zgui.button(">>", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
+    // Skip forward button
+    zgui.setCursorScreenPos(.{ cur_x, btn_y });
+    if (zgui.button(">>", .{ .w = 35, .h = btn_h })) {
         const step = 1.0 / STATE.fps;
         STATE.seek_requested = true;
         STATE.seek_time = @min(STATE.duration, STATE.current_time + step * 60);
     }
+    cur_x += 35 + spacing * 2;
 
-    zgui.dummy(.{ .w = 0, .h = spacing });
-
+    // Speed button
     var speed_buf: [16]u8 = undefined;
-    const speed_str = std.fmt.bufPrintZ(&speed_buf, "SPD {d:.2}x", .{STATE.playback_rate}) catch "SPD 1.00x";
+    const speed_str = std.fmt.bufPrintZ(&speed_buf, "{d:.2}x", .{STATE.playback_rate}) catch "1.00x";
 
-    if (zgui.button(speed_str, .{ .w = btn_w, .h = btn_h })) {
+    zgui.setCursorScreenPos(.{ cur_x, btn_y });
+    if (zgui.button(speed_str, .{ .w = 48, .h = btn_h })) {
         var current_idx: usize = 3;
         for (STATE.PLAYBACK_RATES, 0..) |rate, i| {
             if (STATE.playback_rate == rate) {
@@ -510,83 +510,73 @@ fn drawSidebarControls() void {
         const next_idx = (current_idx + 1) % STATE.PLAYBACK_RATES.len;
         STATE.playback_rate = STATE.PLAYBACK_RATES[next_idx];
     }
+    cur_x += 48 + spacing * 2;
 
-    zgui.dummy(.{ .w = 0, .h = spacing });
-
+    // Audio controls (if has audio)
     if (STATE.has_audio) {
-        if (zgui.button(if (STATE.is_muted) "UNMUTE" else "MUTE", .{ .w = btn_w, .h = btn_h })) {
+        // Mute button
+        zgui.setCursorScreenPos(.{ cur_x, btn_y });
+        if (zgui.button(if (STATE.is_muted) "UNMUTE" else "MUTE", .{ .w = 58, .h = btn_h })) {
             STATE.is_muted = !STATE.is_muted;
         }
+        cur_x += 58 + spacing;
 
-        zgui.dummy(.{ .w = 0, .h = spacing });
-
-        if (zgui.button("VOL -", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
+        // Volume down
+        zgui.setCursorScreenPos(.{ cur_x, btn_y });
+        if (zgui.button("-", .{ .w = 22, .h = btn_h })) {
             STATE.volume = @max(0.0, STATE.volume - 0.1);
         }
-        zgui.sameLine(.{});
-        if (zgui.button("VOL +", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
+        cur_x += 22 + spacing / 2;
+
+        // Volume bar
+        const vol_bar_w: f32 = 70;
+        const vol_bar_h: f32 = 9;
+        const vol_bar_y = y + (h - vol_bar_h) / 2;
+
+        draw_list.addRectFilled(.{
+            .pmin = .{ cur_x, vol_bar_y },
+            .pmax = .{ cur_x + vol_bar_w, vol_bar_y + vol_bar_h },
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.25, 0.25, 0.25, 1.0 }),
+            .rounding = 2,
+        });
+
+        draw_list.addRectFilled(.{
+            .pmin = .{ cur_x, vol_bar_y },
+            .pmax = .{ cur_x + vol_bar_w * STATE.volume, vol_bar_y + vol_bar_h },
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 }),
+            .rounding = 2,
+        });
+        cur_x += vol_bar_w + spacing / 2;
+
+        // Volume up
+        zgui.setCursorScreenPos(.{ cur_x, btn_y });
+        if (zgui.button("+", .{ .w = 22, .h = btn_h })) {
             STATE.volume = @min(1.0, STATE.volume + 0.1);
         }
-
-        const draw_list = zgui.getWindowDrawList();
-        const bar_pos = zgui.getCursorScreenPos();
-        const bar_w = btn_w;
-        const bar_h: f32 = 10;
-
-        draw_list.addRectFilled(.{
-            .pmin = .{ bar_pos[0], bar_pos[1] },
-            .pmax = .{ bar_pos[0] + bar_w, bar_pos[1] + bar_h },
-            .col = zgui.colorConvertFloat4ToU32(.{ 0.20, 0.20, 0.20, 1.0 }),
-            .rounding = 3,
-        });
-
-        draw_list.addRectFilled(.{
-            .pmin = .{ bar_pos[0], bar_pos[1] },
-            .pmax = .{ bar_pos[0] + bar_w * STATE.volume, bar_pos[1] + bar_h },
-            .col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 }),
-            .rounding = 3,
-        });
-
-        zgui.dummy(.{ .w = bar_w, .h = bar_h });
+        cur_x += 22 + spacing;
     }
 
-    zgui.dummy(.{ .w = 0, .h = spacing });
+    // Right-aligned buttons: CAPTURE and EXIT
+    const right_margin = spacing;
+    const exit_w: f32 = 45;
+    const capture_w: f32 = 65;
 
-    if (zgui.button("CAPTURE", .{ .w = btn_w, .h = btn_h })) {
+    // EXIT button (rightmost)
+    const exit_x = x + w - right_margin - exit_w;
+    zgui.setCursorScreenPos(.{ exit_x, btn_y });
+    if (zgui.button("EXIT", .{ .w = exit_w, .h = btn_h })) {
+        sapp.quit();
+    }
+
+    // CAPTURE button (left of EXIT)
+    const capture_x = exit_x - spacing - capture_w;
+    zgui.setCursorScreenPos(.{ capture_x, btn_y });
+    if (zgui.button("CAPTURE", .{ .w = capture_w, .h = btn_h })) {
         var buf: [64]u8 = undefined;
         const filename = std.fmt.bufPrintZ(&buf, "screenshot_{d:0>3}.png", .{STATE.screenshot_counter}) catch "screenshot.png";
         saveScreenshot(filename.ptr);
         STATE.screenshot_counter += 1;
         std.log.info("Screenshot request: {s}", .{filename});
-    }
-
-    zgui.dummy(.{ .w = 0, .h = spacing });
-
-    if (zgui.button("EXIT", .{ .w = btn_w, .h = btn_h })) {
-        sapp.quit();
-    }
-}
-
-fn drawRightRail(x: f32, y: f32, w: f32, h: f32, count: usize) void {
-    const dl = zgui.getWindowDrawList();
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        const top = y + @as(f32, @floatFromInt(i)) * (h + 10.0);
-        const base_col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 });
-        dl.addRectFilled(.{
-            .pmin = .{ x, top },
-            .pmax = .{ x + w, top + h },
-            .col = base_col,
-            .rounding = h / 2.0,
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ x + w - 36, top + 6 },
-            .pmax = .{ x + w - 8, top + h - 6 },
-            .col = zgui.colorConvertFloat4ToU32(.{ 0.20, 0.20, 0.20, 1.0 }),
-            .rounding = 6,
-        });
-        zgui.setCursorScreenPos(.{ x + 10, top + 3 });
-        zgui.text("{d:0>2}", .{i + 1});
     }
 }
 
@@ -648,7 +638,6 @@ fn init() void {
         loadVideo(STATE.video_path) catch {
             // Error already logged and stored
         };
-        fitToWindow();
     }
 }
 
