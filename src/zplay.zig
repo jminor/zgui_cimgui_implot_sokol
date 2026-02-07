@@ -60,19 +60,6 @@ const STATE = struct {
     const SIDEBAR_WIDTH: f32 = 200.0;
     const HEADER_HEIGHT: f32 = 60.0;
     const SPACING: f32 = 8.0;
-    const ELBOW_RADIUS: f32 = 36.0;
-
-    // LCARS Colors (RGBA normalized)
-    const LCARS_ORANGE = [4]f32{ 0.98, 0.58, 0.2, 1.0 };
-    const LCARS_PURPLE = [4]f32{ 0.56, 0.52, 0.72, 1.0 };
-    const LCARS_BLUE = [4]f32{ 0.22, 0.58, 0.82, 1.0 };
-    const LCARS_CYAN = [4]f32{ 0.35, 0.82, 0.95, 1.0 };
-    const LCARS_RED = [4]f32{ 0.86, 0.32, 0.3, 1.0 };
-    const LCARS_BEIGE = [4]f32{ 0.93, 0.84, 0.65, 1.0 };
-    const LCARS_BLACK = [4]f32{ 0.0, 0.0, 0.0, 1.0 };
-    const LCARS_DARK = [4]f32{ 0.07, 0.09, 0.12, 1.0 };
-    const LCARS_PANEL = [4]f32{ 0.18, 0.2, 0.26, 1.0 };
-    const LCARS_GRAY = [4]f32{ 0.33, 0.35, 0.42, 1.0 };
 
     // Playback rates
     const PLAYBACK_RATES = [_]f32{ 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0 };
@@ -228,18 +215,6 @@ fn draw() !void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 0 });
     zgui.setNextWindowSize(.{ .w = size[0], .h = size[1] });
 
-    // Set LCARS background color
-    zgui.pushStyleColor4f(.{ .idx = .window_bg, .c = STATE.LCARS_BLACK });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BEIGE });
-    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 0, 0 } });
-    zgui.pushStyleVar2f(.{ .idx = .item_spacing, .v = .{ 8, 6 } });
-    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 14.0 });
-
-    defer {
-        zgui.popStyleColor(.{ .count = 2 });
-        zgui.popStyleVar(.{ .count = 3 });
-    }
-
     if (zgui.begin(
         "###ZPLAY",
         .{
@@ -256,153 +231,25 @@ fn draw() !void {
     )) {
         defer zgui.end();
 
-        // --- LCARS Frame Drawing ---
-        const dl = zgui.getWindowDrawList();
-
-        // Define coordinates
         const s_width = STATE.SIDEBAR_WIDTH;
         const h_height = STATE.HEADER_HEIGHT;
-        const elbow_r = STATE.ELBOW_RADIUS;
         const spacing = STATE.SPACING;
 
-        // Elbow colors
-        const col_elbow = zgui.colorConvertFloat4ToU32(STATE.LCARS_PURPLE);
-        const col_panel = zgui.colorConvertFloat4ToU32(STATE.LCARS_PANEL);
-        const col_dark = zgui.colorConvertFloat4ToU32(STATE.LCARS_DARK);
-        const col_orange = zgui.colorConvertFloat4ToU32(STATE.LCARS_ORANGE);
-        const col_cyan = zgui.colorConvertFloat4ToU32(STATE.LCARS_CYAN);
-        const col_gray = zgui.colorConvertFloat4ToU32(STATE.LCARS_GRAY);
-
-        // 1. Top Header Bar (starts after elbow)
-        // Position: x = s_width, y = 0
-        // Width: size[0] - s_width - spacing
-        const header_h = h_height * 0.55;
-        dl.addRectFilled(.{
-            .pmin = .{ s_width + elbow_r, 0 },
-            .pmax = .{ size[0] - 24, header_h },
-            .col = col_panel,
-            .rounding = header_h / 2.0,
-            .flags = .{ .round_corners_top_right = true, .round_corners_top_left = false, .round_corners_bottom_right = true, .round_corners_bottom_left = false },
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ s_width + elbow_r, header_h + 4 },
-            .pmax = .{ size[0] - 160, header_h + 10 },
-            .col = col_cyan,
-            .rounding = 3,
-        });
-
-        // 2. The Elbow (Top Left)
-        // Vertical part of elbow
-        dl.addRectFilled(.{
-            .pmin = .{ 0, 0 },
-            .pmax = .{ s_width, h_height + elbow_r },
-            .col = col_elbow,
-            .rounding = elbow_r,
-            .flags = .{ .round_corners_bottom_right = true },
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ 16, 14 },
-            .pmax = .{ s_width - 16, h_height * 0.45 },
-            .col = col_dark,
-            .rounding = 12,
-        });
-
-        // Sidebar Background (below elbow)
-        // We leave gaps between buttons, so maybe we don't need a solid background,
-        // but LCARS usually has a solid column on the left.
-        // Let's draw the sidebar column area
-        dl.addRectFilled(.{
-            .pmin = .{ 0, h_height + elbow_r + spacing },
-            .pmax = .{ s_width, size[1] - 12 },
-            .col = col_panel,
-            .rounding = 22,
-            .flags = .{ .round_corners_top_right = true },
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ s_width - 22, h_height + elbow_r + spacing + 12 },
-            .pmax = .{ s_width - 12, size[1] - 40 },
-            .col = col_dark,
-            .rounding = 6,
-        });
-
-        // 3. Header Text & Decoration
-        const title_text = if (STATE.video_loaded) std.fs.path.basename(STATE.video_path) else "SYSTEM READY";
-
-        // Stardate
-        const timestamp = std.time.milliTimestamp();
-        var stardate_buf: [32]u8 = undefined;
-        const stardate = std.fmt.bufPrintZ(&stardate_buf, "SD-{d}", .{@divTrunc(timestamp, 100000)}) catch "SD-0000";
-
-        zgui.setCursorPos(.{ size[0] - 200, 6 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_ORANGE });
-        zgui.text("{s}", .{stardate});
-
-        // Title aligned to right of elbow
-        zgui.setCursorPos(.{ s_width + elbow_r + 16, 6 });
-        zgui.text("{s}", .{title_text});
-        zgui.popStyleColor(.{});
-
-        // 4. Decoration - Bottom Bar line
-        // Move bottom decoration up to create a dedicated metadata/status area
         const bottom_bar_h: f32 = 44.0;
         const bottom_y = size[1] - bottom_bar_h - 12;
-
-        dl.addRectFilled(.{
-            .pmin = .{ s_width + spacing, bottom_y },
-            .pmax = .{ size[0] - 24, bottom_y + bottom_bar_h },
-            .col = col_panel,
-            .rounding = bottom_bar_h / 2.0,
-            .flags = .{ .round_corners_top_right = true, .round_corners_bottom_right = true },
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ s_width + spacing, bottom_y + bottom_bar_h + 6 },
-            .pmax = .{ size[0] - 260, bottom_y + bottom_bar_h + 12 },
-            .col = col_orange,
-            .rounding = 3,
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ size[0] - 220, bottom_y + bottom_bar_h + 6 },
-            .pmax = .{ size[0] - 24, bottom_y + bottom_bar_h + 12 },
-            .col = col_cyan,
-            .rounding = 3,
-        });
-
-        // --- Main Content Area ---
         const content_x = s_width + spacing;
         const content_y = h_height + spacing * 2;
         const content_w = size[0] - content_x - spacing;
         const content_h = bottom_y - content_y - spacing;
 
-        dl.addRect(.{
-            .pmin = .{ content_x + 6, content_y + 6 },
-            .pmax = .{ content_x + content_w - 6, content_y + content_h - 6 },
-            .col = col_cyan,
-            .rounding = 16,
-            .thickness = 1.0,
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ content_x + 18, content_y + 12 },
-            .pmax = .{ content_x + 88, content_y + 18 },
-            .col = col_gray,
-            .rounding = 3,
-        });
-        dl.addRectFilled(.{
-            .pmin = .{ content_x + 96, content_y + 12 },
-            .pmax = .{ content_x + 150, content_y + 18 },
-            .col = col_orange,
-            .rounding = 3,
-        });
-
         zgui.setCursorPos(.{ content_x, content_y });
 
         if (STATE.video_loaded) {
-            // Fit to window on first frame (needs updated logic)
             if (STATE.needs_initial_fit) {
                 fitToWindow();
                 STATE.needs_initial_fit = false;
             }
 
-            // Create a child window for the main content to clip it
             if (zgui.beginChild(
                 "ContentRegion",
                 .{
@@ -414,17 +261,12 @@ fn draw() !void {
             )) {
                 defer zgui.endChild();
 
-                // Video Display - Center it in the available space
-                // We'll put the timeline inside the "Bottom Bar" area instead of here
                 drawVideoView(content_w, content_h);
             }
 
-            // Draw Metadata & Timeline in the bottom bar area
             drawBottomStatus(content_x, bottom_y, content_w, bottom_bar_h);
         } else if (STATE.load_error) |err| {
-            zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_RED });
             zgui.text("ERROR: {s}", .{err});
-            zgui.popStyleColor(.{});
         } else {
             zgui.setCursorPos(.{ content_x + 50, content_y + 50 });
             zgui.text("WAITING FOR INPUT...", .{});
@@ -432,11 +274,8 @@ fn draw() !void {
             zgui.text("USAGE: zplay <file>", .{});
         }
 
-        // --- Sidebar Controls ---
-        // Render buttons in the left column
         drawSidebarControls();
 
-        // Right rail info blocks
         drawRightRail(content_x + content_w - 170, content_y + 24, 150, 22, 10);
     }
 }
@@ -526,7 +365,7 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
             .w = avail_w,
             .h = avail_h,
             .child_flags = .{
-                .border = true, // Enable border for frame look
+                .border = true,
             },
             .window_flags = .{
                 .horizontal_scrollbar = false,
@@ -534,19 +373,6 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
             },
         },
     )) {
-        // Draw frame border color
-        const dl = zgui.getWindowDrawList();
-        const p_min = zgui.getItemRectMin();
-        const p_max = zgui.getItemRectMax();
-        // Thin border
-        dl.addRect(.{
-            .pmin = p_min,
-            .pmax = p_max,
-            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_GRAY),
-            .rounding = 0,
-            .thickness = 1.0,
-        });
-
         defer zgui.endChild();
 
         // Center the video
@@ -573,9 +399,6 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
 
     const draw_list = zgui.getWindowDrawList();
 
-    // The background bar (PURPLE) is already drawn in the main loop.
-    // We draw the progress bar (ORANGE) on top.
-
     const progress = if (STATE.duration > 0) STATE.current_time / STATE.duration else 0;
     const progress_w = w * @as(f32, @floatCast(progress));
 
@@ -583,15 +406,13 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
         draw_list.addRectFilled(.{
             .pmin = .{ x, y },
             .pmax = .{ x + progress_w, y + h },
-            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_ORANGE),
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 }),
             .rounding = h / 2.0,
             .flags = .{ .round_corners_top_right = true, .round_corners_bottom_right = true },
         });
     }
 
-    // Info Text Overlay (Left aligned)
     zgui.setCursorScreenPos(.{ x + 20, y + (h - zgui.getTextLineHeight()) / 2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_DARK });
 
     var info_buf: [128]u8 = undefined;
     const info_str = std.fmt.bufPrintZ(&info_buf, "RES: {d}x{d}   FPS: {d:.2}", .{
@@ -602,7 +423,6 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
 
     zgui.text("{s}", .{info_str});
 
-    // Time Text Overlay (Right aligned)
     var time_buf: [64]u8 = undefined;
     const time_str = std.fmt.bufPrintZ(&time_buf, "{s} / {s}", .{
         formatTime(STATE.current_time),
@@ -613,9 +433,6 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     zgui.setCursorScreenPos(.{ x + w - text_size[0] - 20, y + (h - zgui.getTextLineHeight()) / 2 });
     zgui.text("{s}", .{time_str});
 
-    zgui.popStyleColor(.{});
-
-    // Invisible slider for interaction
     zgui.setCursorScreenPos(.{ x, y });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = .{ 0, 0, 0, 0 } });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = .{ 0, 0, 0, 0 } });
@@ -627,7 +444,6 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     const duration_f: f32 = @floatCast(@max(STATE.duration, 0.001));
 
     zgui.pushItemWidth(w);
-    // Use a unique ID based on the pointer or something constant
     if (zgui.sliderFloat("##timeline_overlay", .{
         .v = &time_pos,
         .min = 0,
@@ -643,55 +459,20 @@ fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     zgui.popStyleColor(.{ .count = 5 });
 }
 
-/// Helper to draw a styled LCARS button
-fn lcarsButton(label: [:0]const u8, color: [4]f32, w: f32, h: f32) bool {
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = color });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = .{ color[0] * 1.05, color[1] * 1.05, color[2] * 1.05, 1.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = .{ color[0] * 0.85, color[1] * 0.85, color[2] * 0.85, 1.0 } });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_DARK });
-    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 8, 3 } });
-    zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = h / 2.0 });
-
-    // Align text to right if it's a sidebar button (heuristic: width > 100)
-    // Actually, centered is fine for now, but let's make sure it's uppercase.
-    // The labels are already passed as uppercase.
-
-    const result = zgui.button(label, .{ .w = w, .h = h });
-
-    zgui.popStyleVar(.{ .count = 2 });
-    zgui.popStyleColor(.{ .count = 4 });
-    return result;
-}
-
 /// Draw controls in the sidebar
 fn drawSidebarControls() void {
     const s_width = STATE.SIDEBAR_WIDTH;
     const h_height = STATE.HEADER_HEIGHT;
-    const elbow_r = STATE.ELBOW_RADIUS;
     const spacing = STATE.SPACING;
 
-    // Start below the elbow
-    zgui.setCursorPos(.{ 14, h_height + elbow_r + spacing });
+    zgui.setCursorPos(.{ spacing, h_height + spacing });
 
-    const btn_w = s_width - 28;
+    const btn_w = s_width - spacing * 2;
     const btn_h = 30.0;
 
-    // Numeric Prefix
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_ORANGE });
-    zgui.text("07-321", .{});
-    zgui.popStyleColor(.{});
+    zgui.setCursorPos(.{ spacing, h_height + spacing });
 
-    const dl = zgui.getWindowDrawList();
-    const cursor_pos = zgui.getCursorScreenPos();
-    dl.addRectFilled(.{
-        .pmin = .{ cursor_pos[0] + btn_w - 50, cursor_pos[1] + 4 },
-        .pmax = .{ cursor_pos[0] + btn_w - 8, cursor_pos[1] + 10 },
-        .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_CYAN),
-        .rounding = 3,
-    });
-
-    // Transport
-    if (lcarsButton(if (STATE.is_playing) "PAUSE" else "PLAY", STATE.LCARS_ORANGE, btn_w, btn_h)) {
+    if (zgui.button(if (STATE.is_playing) "PAUSE" else "PLAY", .{ .w = btn_w, .h = btn_h })) {
         STATE.is_playing = !STATE.is_playing;
         if (STATE.is_playing) {
             STATE.last_frame_time = std.time.milliTimestamp();
@@ -701,14 +482,13 @@ fn drawSidebarControls() void {
 
     zgui.dummy(.{ .w = 0, .h = spacing });
 
-    // Horizontal row for Rewind/FF
-    if (lcarsButton("<<", STATE.LCARS_BEIGE, (btn_w - spacing) / 2, btn_h)) {
+    if (zgui.button("<<", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
         const step = 1.0 / STATE.fps;
         STATE.seek_requested = true;
-        STATE.seek_time = @max(0, STATE.current_time - step * 60); // 2s approx
+        STATE.seek_time = @max(0, STATE.current_time - step * 60);
     }
     zgui.sameLine(.{});
-    if (lcarsButton(">>", STATE.LCARS_BEIGE, (btn_w - spacing) / 2, btn_h)) {
+    if (zgui.button(">>", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
         const step = 1.0 / STATE.fps;
         STATE.seek_requested = true;
         STATE.seek_time = @min(STATE.duration, STATE.current_time + step * 60);
@@ -716,17 +496,11 @@ fn drawSidebarControls() void {
 
     zgui.dummy(.{ .w = 0, .h = spacing });
 
-    // Speed Control
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLUE });
-    zgui.text("44-205", .{});
-    zgui.popStyleColor(.{});
-
     var speed_buf: [16]u8 = undefined;
     const speed_str = std.fmt.bufPrintZ(&speed_buf, "SPD {d:.2}x", .{STATE.playback_rate}) catch "SPD 1.00x";
 
-    if (lcarsButton(speed_str, STATE.LCARS_BLUE, btn_w, btn_h)) {
-        // Cycle speed
-        var current_idx: usize = 3; // Default 1.0
+    if (zgui.button(speed_str, .{ .w = btn_w, .h = btn_h })) {
+        var current_idx: usize = 3;
         for (STATE.PLAYBACK_RATES, 0..) |rate, i| {
             if (STATE.playback_rate == rate) {
                 current_idx = i;
@@ -739,28 +513,21 @@ fn drawSidebarControls() void {
 
     zgui.dummy(.{ .w = 0, .h = spacing });
 
-    // Audio
     if (STATE.has_audio) {
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_RED });
-        zgui.text("88-512", .{});
-        zgui.popStyleColor(.{});
-
-        if (lcarsButton(if (STATE.is_muted) "UNMUTE" else "MUTE", STATE.LCARS_RED, btn_w, btn_h)) {
+        if (zgui.button(if (STATE.is_muted) "UNMUTE" else "MUTE", .{ .w = btn_w, .h = btn_h })) {
             STATE.is_muted = !STATE.is_muted;
         }
 
         zgui.dummy(.{ .w = 0, .h = spacing });
 
-        // Volume Buttons (+ / -) instead of slider for touch/lcars feel
-        if (lcarsButton("VOL -", STATE.LCARS_BEIGE, (btn_w - spacing) / 2, btn_h)) {
+        if (zgui.button("VOL -", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
             STATE.volume = @max(0.0, STATE.volume - 0.1);
         }
         zgui.sameLine(.{});
-        if (lcarsButton("VOL +", STATE.LCARS_BEIGE, (btn_w - spacing) / 2, btn_h)) {
+        if (zgui.button("VOL +", .{ .w = (btn_w - spacing) / 2, .h = btn_h })) {
             STATE.volume = @min(1.0, STATE.volume + 0.1);
         }
 
-        // Volume indicator bar
         const draw_list = zgui.getWindowDrawList();
         const bar_pos = zgui.getCursorScreenPos();
         const bar_w = btn_w;
@@ -769,24 +536,23 @@ fn drawSidebarControls() void {
         draw_list.addRectFilled(.{
             .pmin = .{ bar_pos[0], bar_pos[1] },
             .pmax = .{ bar_pos[0] + bar_w, bar_pos[1] + bar_h },
-            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_DARK),
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.20, 0.20, 0.20, 1.0 }),
             .rounding = 3,
         });
 
         draw_list.addRectFilled(.{
             .pmin = .{ bar_pos[0], bar_pos[1] },
             .pmax = .{ bar_pos[0] + bar_w * STATE.volume, bar_pos[1] + bar_h },
-            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_BLUE),
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 }),
             .rounding = 3,
         });
 
         zgui.dummy(.{ .w = bar_w, .h = bar_h });
     }
 
-    // Bottom filler
-    zgui.dummy(.{ .w = 0, .h = spacing * 4 });
+    zgui.dummy(.{ .w = 0, .h = spacing });
 
-    if (lcarsButton("CAPTURE", STATE.LCARS_BLUE, btn_w, btn_h)) {
+    if (zgui.button("CAPTURE", .{ .w = btn_w, .h = btn_h })) {
         var buf: [64]u8 = undefined;
         const filename = std.fmt.bufPrintZ(&buf, "screenshot_{d:0>3}.png", .{STATE.screenshot_counter}) catch "screenshot.png";
         saveScreenshot(filename.ptr);
@@ -796,7 +562,7 @@ fn drawSidebarControls() void {
 
     zgui.dummy(.{ .w = 0, .h = spacing });
 
-    if (lcarsButton("EXIT", STATE.LCARS_RED, btn_w, btn_h)) {
+    if (zgui.button("EXIT", .{ .w = btn_w, .h = btn_h })) {
         sapp.quit();
     }
 }
@@ -806,23 +572,21 @@ fn drawRightRail(x: f32, y: f32, w: f32, h: f32, count: usize) void {
     var i: usize = 0;
     while (i < count) : (i += 1) {
         const top = y + @as(f32, @floatFromInt(i)) * (h + 10.0);
-        const base_col = if (i % 4 == 0) STATE.LCARS_ORANGE else if (i % 4 == 1) STATE.LCARS_BLUE else if (i % 4 == 2) STATE.LCARS_PURPLE else STATE.LCARS_BEIGE;
+        const base_col = zgui.colorConvertFloat4ToU32(.{ 0.117, 0.565, 0.929, 1.0 });
         dl.addRectFilled(.{
             .pmin = .{ x, top },
             .pmax = .{ x + w, top + h },
-            .col = zgui.colorConvertFloat4ToU32(base_col),
+            .col = base_col,
             .rounding = h / 2.0,
         });
         dl.addRectFilled(.{
             .pmin = .{ x + w - 36, top + 6 },
             .pmax = .{ x + w - 8, top + h - 6 },
-            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_DARK),
+            .col = zgui.colorConvertFloat4ToU32(.{ 0.20, 0.20, 0.20, 1.0 }),
             .rounding = 6,
         });
         zgui.setCursorScreenPos(.{ x + 10, top + 3 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_DARK });
-        zgui.text("{d:0>2}-{d:0>3}", .{ 20 + i, 300 + i * 7 });
-        zgui.popStyleColor(.{});
+        zgui.text("{d:0>2}", .{i + 1});
     }
 }
 
