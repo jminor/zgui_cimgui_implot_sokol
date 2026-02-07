@@ -265,20 +265,16 @@ fn draw() !void {
         const col_bar = zgui.colorConvertFloat4ToU32(STATE.LCARS_PURPLE);
 
         // 1. Top Header Bar (starts after elbow)
-        // Position: x = s_width + spacing, y = 0
+        // Position: x = s_width, y = 0
         // Width: size[0] - s_width - spacing
         dl.addRectFilled(.{
-            .pmin = .{ s_width + spacing, 0 },
-            .pmax = .{ size[0] - 20, h_height / 1.5 }, // Make header a bit thinner than full elbow height
+            .pmin = .{ s_width, 0 },
+            .pmax = .{ size[0] - 20, h_height * 0.6 }, // Thinner header
             .col = col_bar,
-            .rounding = elbow_r,
-            .flags = .{ .round_corners_bottom_left = true },
+            .rounding = 0,
         });
 
         // 2. The Elbow (Top Left)
-        // A complex shape: a filled rect for the column part, and a filled rect for the row part, connected by arc
-        // Simplified: Draw a thick reversed 'L' with rounded outer corner
-
         // Vertical part of elbow
         dl.addRectFilled(.{
             .pmin = .{ 0, 0 },
@@ -299,27 +295,41 @@ fn draw() !void {
             .rounding = 0,
         });
 
-        // 3. Header Text
-        const title_text = if (STATE.video_loaded) std.fs.path.basename(STATE.video_path) else "ZPLAY SYSTEM READY";
-        zgui.setCursorPos(.{ s_width + spacing + 20, 5 });
+        // 3. Header Text & Decoration
+        const title_text = if (STATE.video_loaded) std.fs.path.basename(STATE.video_path) else "SYSTEM READY";
+
+        // Stardate
+        const timestamp = std.time.milliTimestamp();
+        var stardate_buf: [32]u8 = undefined;
+        const stardate = std.fmt.bufPrintZ(&stardate_buf, "SD-{d}", .{@divTrunc(timestamp, 100000)}) catch "SD-0000";
+
+        zgui.setCursorPos(.{ size[0] - 200, 5 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLACK });
+        zgui.text("{s}", .{stardate});
+
+        // Title aligned to right of elbow
+        zgui.setCursorPos(.{ s_width + 20, 5 });
         zgui.text("{s}", .{title_text});
         zgui.popStyleColor(.{});
 
-        // 4. Decoration - Bottom Bar line?
-        // LCARS often has a bottom rail too.
+        // 4. Decoration - Bottom Bar line
+        // Move bottom decoration up to create a dedicated metadata/status area
+        const bottom_bar_h: f32 = 40.0;
+        const bottom_y = size[1] - bottom_bar_h - 10;
+
         dl.addRectFilled(.{
-            .pmin = .{ s_width + spacing, size[1] - 40 },
-            .pmax = .{ size[0] - 20, size[1] - 10 },
+            .pmin = .{ s_width + spacing, bottom_y },
+            .pmax = .{ size[0] - 20, bottom_y + bottom_bar_h },
             .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_PURPLE),
-            .rounding = 0,
+            .rounding = bottom_bar_h / 2.0,
+            .flags = .{ .round_corners_top_right = false, .round_corners_bottom_right = false },
         });
 
         // --- Main Content Area ---
         const content_x = s_width + spacing;
         const content_y = h_height + spacing;
         const content_w = size[0] - content_x - spacing;
-        const content_h = size[1] - content_y - 40 - spacing; // Reserve space for bottom decoration
+        const content_h = bottom_y - content_y - spacing;
 
         zgui.setCursorPos(.{ content_x, content_y });
 
@@ -342,17 +352,13 @@ fn draw() !void {
             )) {
                 defer zgui.endChild();
 
-                // Video Display
-                // Reserve space at bottom for timeline
-                const timeline_h: f32 = 40.0;
-                const video_area_h = content_h - timeline_h;
-
-                drawVideoView(content_w, video_area_h);
-
-                // Timeline at bottom of content area
-                zgui.setCursorPos(.{ 0, video_area_h });
-                drawTimeline(content_w, timeline_h);
+                // Video Display - Center it in the available space
+                // We'll put the timeline inside the "Bottom Bar" area instead of here
+                drawVideoView(content_w, content_h);
             }
+
+            // Draw Metadata & Timeline in the bottom bar area
+            drawBottomStatus(content_x, bottom_y, content_w, bottom_bar_h);
         } else if (STATE.load_error) |err| {
             zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_RED });
             zgui.text("ERROR: {s}", .{err});
@@ -455,7 +461,7 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
             .w = avail_w,
             .h = avail_h,
             .child_flags = .{
-                .border = false,
+                .border = true, // Enable border for frame look
             },
             .window_flags = .{
                 .horizontal_scrollbar = false,
@@ -463,6 +469,19 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
             },
         },
     )) {
+        // Draw frame border color
+        const dl = zgui.getWindowDrawList();
+        const p_min = zgui.getItemRectMin();
+        const p_max = zgui.getItemRectMax();
+        // Thin border
+        dl.addRect(.{
+            .pmin = p_min,
+            .pmax = p_max,
+            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_GRAY),
+            .rounding = 0,
+            .thickness = 1.0,
+        });
+
         defer zgui.endChild();
 
         // Center the video
@@ -483,37 +502,56 @@ fn drawVideoView(avail_w: f32, avail_h: f32) void {
     }
 }
 
-/// Draw the timeline
-fn drawTimeline(width: f32, height: f32) void {
+/// Draw the bottom status bar with timeline and metadata
+fn drawBottomStatus(x: f32, y: f32, w: f32, h: f32) void {
     if (!STATE.video_loaded) return;
 
-    // Use custom drawing for LCARS style timeline
     const draw_list = zgui.getWindowDrawList();
-    const cursor_pos = zgui.getCursorScreenPos();
-    const start_x = cursor_pos[0];
-    const start_y = cursor_pos[1];
 
-    // Background bar
-    draw_list.addRectFilled(.{
-        .pmin = .{ start_x, start_y + 10 },
-        .pmax = .{ start_x + width, start_y + height - 10 },
-        .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_GRAY),
-        .rounding = height / 4,
-    });
+    // The background bar (PURPLE) is already drawn in the main loop.
+    // We draw the progress bar (ORANGE) on top.
 
-    // Progress
     const progress = if (STATE.duration > 0) STATE.current_time / STATE.duration else 0;
-    const progress_w = width * @as(f32, @floatCast(progress));
+    const progress_w = w * @as(f32, @floatCast(progress));
 
-    draw_list.addRectFilled(.{
-        .pmin = .{ start_x, start_y + 10 },
-        .pmax = .{ start_x + progress_w, start_y + height - 10 },
-        .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_ORANGE),
-        .rounding = height / 4,
-    });
+    if (progress_w > 0) {
+        draw_list.addRectFilled(.{
+            .pmin = .{ x, y },
+            .pmax = .{ x + progress_w, y + h },
+            .col = zgui.colorConvertFloat4ToU32(STATE.LCARS_ORANGE),
+            .rounding = h / 2.0,
+            .flags = .{ .round_corners_top_right = false, .round_corners_bottom_right = false },
+        });
+    }
+
+    // Info Text Overlay (Left aligned)
+    zgui.setCursorScreenPos(.{ x + 20, y + (h - zgui.getTextLineHeight()) / 2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLACK });
+
+    var info_buf: [128]u8 = undefined;
+    const info_str = std.fmt.bufPrintZ(&info_buf, "RES: {d}x{d}   FPS: {d:.2}", .{
+        STATE.video_width,
+        STATE.video_height,
+        STATE.fps,
+    }) catch "INFO ERROR";
+
+    zgui.text("{s}", .{info_str});
+
+    // Time Text Overlay (Right aligned)
+    var time_buf: [64]u8 = undefined;
+    const time_str = std.fmt.bufPrintZ(&time_buf, "{s} / {s}", .{
+        formatTime(STATE.current_time),
+        formatTime(STATE.duration),
+    }) catch "00:00 / 00:00";
+
+    const text_size = zgui.calcTextSize(time_str, .{});
+    zgui.setCursorScreenPos(.{ x + w - text_size[0] - 20, y + (h - zgui.getTextLineHeight()) / 2 });
+    zgui.text("{s}", .{time_str});
+
+    zgui.popStyleColor(.{});
 
     // Invisible slider for interaction
-    zgui.setCursorScreenPos(.{ start_x, start_y });
+    zgui.setCursorScreenPos(.{ x, y });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = .{ 0, 0, 0, 0 } });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg_active, .c = .{ 0, 0, 0, 0 } });
     zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = .{ 0, 0, 0, 0 } });
@@ -523,7 +561,8 @@ fn drawTimeline(width: f32, height: f32) void {
     var time_pos: f32 = @floatCast(STATE.current_time);
     const duration_f: f32 = @floatCast(@max(STATE.duration, 0.001));
 
-    zgui.pushItemWidth(width);
+    zgui.pushItemWidth(w);
+    // Use a unique ID based on the pointer or something constant
     if (zgui.sliderFloat("##timeline_overlay", .{
         .v = &time_pos,
         .min = 0,
@@ -537,19 +576,6 @@ fn drawTimeline(width: f32, height: f32) void {
     zgui.popItemWidth();
 
     zgui.popStyleColor(.{ .count = 5 });
-
-    // Time text overlay (Centered)
-    var buf: [64]u8 = undefined;
-    const time_str = std.fmt.bufPrintZ(&buf, "{s} / {s}", .{
-        formatTime(STATE.current_time),
-        formatTime(STATE.duration),
-    }) catch "00:00 / 00:00";
-
-    const text_size = zgui.calcTextSize(time_str, .{});
-    zgui.setCursorScreenPos(.{ start_x + (width - text_size[0]) / 2, start_y + (height - text_size[1]) / 2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLACK });
-    zgui.text("{s}", .{time_str});
-    zgui.popStyleColor(.{});
 }
 
 /// Helper to draw a styled LCARS button
@@ -557,13 +583,18 @@ fn lcarsButton(label: [:0]const u8, color: [4]f32, w: f32, h: f32) bool {
     zgui.pushStyleColor4f(.{ .idx = .button, .c = color });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = .{ color[0] * 1.1, color[1] * 1.1, color[2] * 1.1, 1.0 } });
     zgui.pushStyleColor4f(.{ .idx = .button_active, .c = .{ color[0] * 0.8, color[1] * 0.8, color[2] * 0.8, 1.0 } });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLACK }); // Ensure readable text
     zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ 5, 2 } });
     zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = h / 2.0 }); // Pill shape
+
+    // Align text to right if it's a sidebar button (heuristic: width > 100)
+    // Actually, centered is fine for now, but let's make sure it's uppercase.
+    // The labels are already passed as uppercase.
 
     const result = zgui.button(label, .{ .w = w, .h = h });
 
     zgui.popStyleVar(.{ .count = 2 });
-    zgui.popStyleColor(.{ .count = 3 });
+    zgui.popStyleColor(.{ .count = 4 });
     return result;
 }
 
@@ -575,13 +606,17 @@ fn drawSidebarControls() void {
     const spacing = STATE.SPACING;
 
     // Start below the elbow
-    zgui.setCursorPos(.{ 10, h_height + elbow_r + spacing * 2 });
+    zgui.setCursorPos(.{ 10, h_height + elbow_r + spacing }); // Reduced gap
 
     const btn_w = s_width - 20;
     const btn_h = 30.0;
 
+    // Numeric Prefix
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_ORANGE });
+    zgui.text("07-321", .{});
+    zgui.popStyleColor(.{});
+
     // Transport
-    zgui.text("TRANSPORT", .{});
     if (lcarsButton(if (STATE.is_playing) "PAUSE" else "PLAY", STATE.LCARS_ORANGE, btn_w, btn_h)) {
         STATE.is_playing = !STATE.is_playing;
         if (STATE.is_playing) {
@@ -605,12 +640,15 @@ fn drawSidebarControls() void {
         STATE.seek_time = @min(STATE.duration, STATE.current_time + step * 60);
     }
 
-    zgui.dummy(.{ .w = 0, .h = spacing * 2 });
+    zgui.dummy(.{ .w = 0, .h = spacing });
 
     // Speed Control
-    zgui.text("SPEED", .{});
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_BLUE });
+    zgui.text("44-205", .{});
+    zgui.popStyleColor(.{});
+
     var speed_buf: [16]u8 = undefined;
-    const speed_str = std.fmt.bufPrintZ(&speed_buf, "{d:.2}x", .{STATE.playback_rate}) catch "1.00x";
+    const speed_str = std.fmt.bufPrintZ(&speed_buf, "SPD {d:.2}x", .{STATE.playback_rate}) catch "SPD 1.00x";
 
     if (lcarsButton(speed_str, STATE.LCARS_BLUE, btn_w, btn_h)) {
         // Cycle speed
@@ -625,11 +663,14 @@ fn drawSidebarControls() void {
         STATE.playback_rate = STATE.PLAYBACK_RATES[next_idx];
     }
 
-    zgui.dummy(.{ .w = 0, .h = spacing * 2 });
+    zgui.dummy(.{ .w = 0, .h = spacing });
 
     // Audio
     if (STATE.has_audio) {
-        zgui.text("AUDIO", .{});
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = STATE.LCARS_RED });
+        zgui.text("88-512", .{});
+        zgui.popStyleColor(.{});
+
         if (lcarsButton(if (STATE.is_muted) "UNMUTE" else "MUTE", STATE.LCARS_RED, btn_w, btn_h)) {
             STATE.is_muted = !STATE.is_muted;
         }
@@ -667,9 +708,9 @@ fn drawSidebarControls() void {
     }
 
     // Bottom filler
-    zgui.dummy(.{ .w = 0, .h = spacing * 2 });
+    zgui.dummy(.{ .w = 0, .h = spacing * 4 });
 
-    if (lcarsButton("SCREENSHOT", STATE.LCARS_BLUE, btn_w, btn_h)) {
+    if (lcarsButton("CAPTURE", STATE.LCARS_BLUE, btn_w, btn_h)) {
         var buf: [64]u8 = undefined;
         const filename = std.fmt.bufPrintZ(&buf, "screenshot_{d:0>3}.png", .{STATE.screenshot_counter}) catch "screenshot.png";
         saveScreenshot(filename.ptr);
